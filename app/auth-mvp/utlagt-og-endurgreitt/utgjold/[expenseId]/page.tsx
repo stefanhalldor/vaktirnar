@@ -7,9 +7,13 @@ import { parseExpenseSavedView } from '@/lib/expenses/flow'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
 import {
   getExpenseEventIdentityCandidates,
+  getExpenseRelationshipIdentityManagement,
   getExpenseItemLookup,
 } from '@/lib/expenses/repository.server'
-import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
+import type {
+  ExpenseParticipantOption,
+  ExpenseRelationshipIdentityManagementState,
+} from '@/lib/expenses/contracts'
 import {
   getExpenseEventLinkManagementV2,
   getExpenseLinkedEventId,
@@ -97,6 +101,17 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
     ? await getExpenseEventIdentityCandidates(user.id, result.expense.id)
       .catch(() => null)
     : null
+  let relationshipIdentityManagementState: ExpenseRelationshipIdentityManagementState = { status: 'absent' }
+  if (result.group.canManage && result.group.kind === 'one_off') {
+    try {
+      relationshipIdentityManagementState = await getExpenseRelationshipIdentityManagement(
+        user.id,
+        result.expense.id,
+      )
+    } catch {
+      relationshipIdentityManagementState = { status: 'unavailable' }
+    }
+  }
 
   return (
     <ExpenseShell
@@ -124,6 +139,7 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
         eventLinkManagement={eventLinkManagement}
         eventLinkManagementUnavailable={eventLinkManagementUnavailable}
         eventIdentityCandidates={eventIdentityCandidates}
+        relationshipIdentityManagementState={relationshipIdentityManagementState}
       />
     </ExpenseShell>
   )

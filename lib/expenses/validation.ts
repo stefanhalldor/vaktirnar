@@ -385,6 +385,14 @@ export const BindExpenseMemberEventIdentitySchema = z.object({
   request_id: requestId,
 }).strict()
 
+export const BindExpenseMemberRelationshipIdentitySchema = z.object({
+  expense_id: uuid,
+  member_id: uuid,
+  relationship_id: uuid,
+  expected_financial_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  request_id: requestId,
+}).strict()
+
 export const DisputeExpenseClaimSchema = z.object({
   expense_id: uuid,
   member_id: uuid,

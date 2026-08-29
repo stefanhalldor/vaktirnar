@@ -30,7 +30,12 @@ import {
   splitByPercentage,
   splitByWeights,
 } from '@/lib/expenses/splits'
-import type { ExpenseItemView, ExpenseParticipantOption, ExpenseRepaymentView } from '@/lib/expenses/contracts'
+import type {
+  ExpenseActionErrorCode,
+  ExpenseItemView,
+  ExpenseParticipantOption,
+  ExpenseRepaymentView,
+} from '@/lib/expenses/contracts'
 import type { EventExpenseVisibility, ExpenseNewMemberInput } from '@/lib/expenses/validation'
 import type { ExpenseSplitMethod } from '@/lib/expenses/types'
 import {
@@ -85,6 +90,22 @@ interface AllocationDraft {
   weight?: string
 }
 
+function expenseEditErrorKey(error: ExpenseActionErrorCode) {
+  switch (error) {
+    case 'invalid_input':
+    case 'referenced_participant':
+    case 'not_allowed':
+    case 'not_found':
+    case 'conflict':
+    case 'feature_disabled':
+    case 'save_failed':
+    case 'save_outcome_unknown':
+      return `editErrors.${error}`
+    default:
+      return `errors.${error}`
+  }
+}
+
 interface ExpenseFormProps {
   mode: 'one_off' | 'group'
   groupId?: string
@@ -97,6 +118,7 @@ interface ExpenseFormProps {
   initialStep?: ExpenseFlowStep
   reviewHref?: string
   draft?: ExpensePrivateDraftView | null
+  initialDraftId?: string
   publicationLifecycle?: ExpenseDraftPublicationLifecycleView | null
   draftBaseHref?: string
   /** Present only when both Events and Expenses gates are authorized. */
@@ -228,6 +250,7 @@ export function ExpenseForm({
   initialDate,
   initialStep = 'details',
   draft = null,
+  initialDraftId,
   publicationLifecycle = null,
   draftBaseHref = '',
   eventSources,
@@ -314,7 +337,7 @@ export function ExpenseForm({
   const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(startingStep)
   const [highestVisitedStep, setHighestVisitedStep] = useState(edit ? EXPENSE_FLOW_STEPS.length - 1 : 0)
   const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const draftIdRef = useRef(draft?.id ?? createRequestId())
+  const draftIdRef = useRef(draft?.id ?? initialDraftId ?? createRequestId())
   const draftVersionRef = useRef<number | null>(draft?.version ?? null)
   const draftStepRef = useRef<ExpenseFlowStep | null>(draft?.currentStep ?? null)
   const draftSavingRef = useRef<Promise<boolean> | null>(null)
@@ -439,6 +462,14 @@ export function ExpenseForm({
     if (draftSavingRef.current) return draftSavingRef.current
     setDraftStatus('saving')
     setRelationNotice(null)
+    if (draftVersionRef.current === null && draftBaseHref) {
+      const separator = draftBaseHref.includes('?') ? '&' : '?'
+      window.history.replaceState(
+        window.history.state,
+        '',
+        `${draftBaseHref}${separator}draft=${draftIdRef.current}`,
+      )
+    }
     const savePromise = (async () => {
       try {
         const result = await saveExpenseDraft({
@@ -1267,7 +1298,7 @@ export function ExpenseForm({
           request_id: requestIds.forPayload(requestPayload),
         })
         if (!result.ok) {
-          setError(t(`errors.${result.error}`))
+          setError(t(expenseEditErrorKey(result.error)))
           queueMicrotask(() => alertRef.current?.focus())
           return
         }

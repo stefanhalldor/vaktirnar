@@ -2,6 +2,7 @@ import 'server-only'
 import { getAdmin } from '@/lib/supabase/admin'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getExpensePayAllEventLabels } from '@/lib/events/repository.server'
+import { deriveExpenseConfirmedPresentations } from './dashboard-presentation'
 import {
   aggregateLedgerBalances,
   applySettlementTransfers,
@@ -49,6 +50,8 @@ import type {
   ExpenseGroupSummaryView,
   ExpenseIdentityProofKind,
   ExpenseEventIdentityCandidatesView,
+  ExpenseRelationshipIdentityManagementView,
+  ExpenseRelationshipIdentityManagementState,
   ExpenseInvitationView,
   ExpenseIncompleteDraftSummaryView,
   ExpenseItemView,
@@ -515,6 +518,41 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
       : parseClaimContext(claimContextResult.data),
     creatorNames,
   }
+}
+
+function isMissingOptionalExpenseFunction(error: unknown, functionName: string): boolean {
+  if (!error || typeof error !== 'object') return false
+  const code = 'code' in error ? String(error.code) : ''
+  if (code !== 'PGRST202' && code !== '42883') return false
+  const diagnostic = ['message', 'details', 'hint']
+    .flatMap((key) => key in error ? [String(error[key as keyof typeof error])] : [])
+    .join(' ')
+  return diagnostic.includes(functionName)
+}
+
+function safeExpenseRelationshipReadDiagnostic(error: unknown): {
+  sqlState: string
+  reason: 'function_resolution' | 'privilege' | 'undefined_dependency' | 'unknown'
+} {
+  const code = error && typeof error === 'object' && 'code' in error
+    ? String(error.code)
+    : ''
+  const sqlState = /^[0-9A-Z]{5}$/.test(code) ? code : 'unknown'
+  const reason = code === 'PGRST202' || code === '42883'
+    ? 'function_resolution'
+    : code === '42501'
+      ? 'privilege'
+      : ['42P01', '42703', '42704'].includes(code)
+        ? 'undefined_dependency'
+        : 'unknown'
+  return { sqlState, reason }
+}
+
+function logExpenseRelationshipReadUnavailable(error: unknown): void {
+  console.error(
+    '[expenses] relationship identity management query unavailable',
+    safeExpenseRelationshipReadDiagnostic(error),
+  )
 }
 
 const EXPENSE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -1768,27 +1806,45 @@ export async function getExpenseDashboard(
       ))
     }
   }
-  const summaries: ExpenseGroupSummaryView[] = groups.map((group) => ({
-    id: group.id,
-    kind: group.kind,
-    name: group.name,
-    emoji: group.emoji,
-    status: group.status,
-    role: group.role,
-    selfBalances: group.balances.filter((entry) => entry.isSelf),
-    expenseCount: group.expenses.length,
-    pendingConfirmationCount: group.repayments.filter((repayment) => repayment.canConfirm).length,
-    cancelled: group.expenses.length > 0
-      && group.expenses.every((expense) => expense.status === 'cancelled'),
-    createdAt: group.createdAt,
-    counterparties: group.members
-      .filter((member) => member.status === 'active' && !member.isSelf)
-      .map((member) => ({
-        key: member.displayName.trim().toLocaleLowerCase('is'),
-        label: member.displayName,
-      })),
-    relationshipCircles: circleContextsByGroup.get(group.id) ?? [],
-  }))
+  const summaries: ExpenseGroupSummaryView[] = groups.map((group) => {
+    return {
+      id: group.id,
+      kind: group.kind,
+      name: group.name,
+      emoji: group.emoji,
+      status: group.status,
+      role: group.role,
+      selfBalances: group.balances.filter((entry) => entry.isSelf),
+      expenseCount: group.expenses.length,
+      pendingConfirmationCount: group.repayments.filter((repayment) => repayment.canConfirm).length,
+      cancelled: group.expenses.length > 0
+        && group.expenses.every((expense) => expense.status === 'cancelled'),
+      createdAt: group.createdAt,
+      counterparties: group.members
+        .filter((member) => member.status === 'active' && !member.isSelf)
+        .map((member) => ({
+          key: member.displayName.trim().toLocaleLowerCase('is'),
+          label: member.displayName,
+        })),
+      relationshipCircles: circleContextsByGroup.get(group.id) ?? [],
+      expensePresentations: deriveExpenseConfirmedPresentations({
+        draftSourceStatus: privateDrafts.status,
+        groupId: group.id,
+        expenses: group.expenses.map((expense) => ({
+          id: expense.id,
+          title: expense.title,
+          status: expense.status,
+        })),
+        drafts: privateDrafts.items,
+      }),
+    }
+  })
+  if (privateDrafts.status === 'ready') {
+    privateDrafts = {
+      status: 'ready',
+      items: privateDrafts.items.filter((draft) => draft.contextType !== 'edit'),
+    }
+  }
   return {
     groups: summaries.filter((group) => group.kind === 'group'),
     oneOffs: summaries.filter((group) => group.kind === 'one_off'),
@@ -2038,6 +2094,76 @@ export async function getExpenseEventIdentityCandidates(
   }
 }
 
+export async function getExpenseRelationshipIdentityManagement(
+  actorUserId: string,
+  expenseId: string,
+): Promise<ExpenseRelationshipIdentityManagementState> {
+  let data: unknown
+  try {
+    const result = await getAdmin().rpc(
+      'expense_get_relationship_identity_management_v1',
+      { p_actor_id: actorUserId, p_expense_id: expenseId },
+    )
+    if (isMissingOptionalExpenseFunction(
+      result.error,
+      'expense_get_relationship_identity_management_v1',
+    )) return { status: 'absent' }
+    if (result.error) {
+      logExpenseRelationshipReadUnavailable(result.error)
+      return { status: 'unavailable' }
+    }
+    data = result.data
+  } catch (error) {
+    logExpenseRelationshipReadUnavailable(error)
+    return { status: 'unavailable' }
+  }
+  if (data === null) return { status: 'absent' }
+  const source = record(data)
+  if (!source || Object.keys(source).some((key) => !['expense_id', 'financial_version', 'members'].includes(key))
+    || source.expense_id !== expenseId || !EXPENSE_UUID_PATTERN.test(source.expense_id)
+    || !Number.isSafeInteger(source.financial_version)
+    || !Array.isArray(source.members) || source.members.length > 50) {
+    console.error(
+      '[expenses] relationship identity management query unavailable',
+      { sqlState: 'unknown', reason: 'invalid_payload' },
+    )
+    return { status: 'unavailable' }
+  }
+  const members = source.members.map((item) => {
+    const member = record(item)
+    if (!member || Object.keys(member).some((key) => !['member_id', 'candidates'].includes(key))
+      || typeof member.member_id !== 'string' || !EXPENSE_UUID_PATTERN.test(member.member_id)
+      || !Array.isArray(member.candidates) || member.candidates.length > 50) return null
+    const candidates = member.candidates.map((item) => {
+      const candidate = record(item)
+      const displayName = boundedString(candidate?.display_name, 120)
+      if (!candidate || Object.keys(candidate).some((key) => !['relationship_id', 'display_name'].includes(key))
+        || typeof candidate.relationship_id !== 'string' || !EXPENSE_UUID_PATTERN.test(candidate.relationship_id)
+        || displayName === null || displayName.includes('@')) return null
+      return { relationshipId: candidate.relationship_id, displayName }
+    })
+    return candidates.some((candidate) => candidate === null)
+      ? null
+      : { memberId: member.member_id, candidates: candidates as Array<{ relationshipId: string; displayName: string }> }
+  })
+  if (members.some((member) => member === null)) {
+    console.error(
+      '[expenses] relationship identity management query unavailable',
+      { sqlState: 'unknown', reason: 'invalid_payload' },
+    )
+    return { status: 'unavailable' }
+  }
+  const parsedMembers = members as ExpenseRelationshipIdentityManagementView['members']
+  if (parsedMembers.length === 0 || parsedMembers.every((member) => member.candidates.length === 0)) {
+    return { status: 'absent' }
+  }
+  return { status: 'available', management: {
+    expenseId,
+    financialVersion: source.financial_version as number,
+    members: parsedMembers,
+  } }
+}
+
 export async function getExpensePrivateDraft(
   actorUserId: string,
   draftId: string,
@@ -2074,6 +2200,38 @@ export async function getExpensePrivateDraft(
     version,
     savedAt: String(row.saved_at),
   }
+}
+
+export async function getCanonicalExpenseEditDraft(
+  actorUserId: string,
+  groupId: string,
+  expenseId: string,
+): Promise<
+  | { status: 'none' }
+  | { status: 'single'; draft: ExpensePrivateDraftView }
+  | { status: 'ambiguous' | 'unavailable' }
+> {
+  if (![actorUserId, groupId, expenseId].every((value) => EXPENSE_UUID_PATTERN.test(value))) {
+    return { status: 'unavailable' }
+  }
+  const { data, error } = await getAdmin().rpc('expense_list_my_private_drafts', {
+    p_actor_id: actorUserId,
+  })
+  const source = parseExpensePrivateDraftSource(data, error)
+  if (source.status !== 'ready') return { status: 'unavailable' }
+  const matches = source.items.filter((draft) => (
+    draft.contextType === 'edit'
+    && draft.groupId === groupId
+    && draft.expenseId === expenseId
+  ))
+  if (matches.length === 0) return { status: 'none' }
+  if (matches.length !== 1) return { status: 'ambiguous' }
+  const draft = await getExpensePrivateDraft(actorUserId, matches[0]!.id)
+  return draft?.contextType === 'edit'
+    && draft.groupId === groupId
+    && draft.expenseId === expenseId
+    ? { status: 'single', draft }
+    : { status: 'unavailable' }
 }
 
 export async function getExpenseRepaymentView(

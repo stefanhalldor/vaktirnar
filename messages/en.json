@@ -1312,9 +1312,11 @@
         "status": "Status"
       },
       "identity": {
-        "linkTeskeidUser": "Link Teskeið user",
+        "linkTeskeidUser": "Link to a Teskeið user",
         "eventPickerTitle": "Choose a Teskeið user",
         "eventPickerDescription": "Only active, accepted participants in {event} are available.",
+        "relationshipPickerDescription": "Choose a verified Relationship for this person.",
+        "relationshipUnavailable": "We couldn't load Relationship options. Try again later.",
         "unknownUser": "Teskeið user",
         "binding": "Linking..."
       },
@@ -1371,6 +1373,9 @@
         "unsharedChanges": "Unshared changes",
         "confirmed": "Confirmed",
         "draftContinue": "Continue",
+        "editInProgress": "Changes in progress · Continue editing",
+        "editAmbiguous": "Editing cannot continue until the drafts have been reviewed",
+        "editLookupUnavailable": "We could not load the editing status",
         "splitNeedsAttention": "The allocation needs attention",
         "untitledDraft": "Untitled entry",
         "unallocated": "Unallocated {amount}",
@@ -1390,6 +1395,14 @@
         "expenseCount": "{count, plural, one {# expense} other {# expenses}}",
         "pendingCount": "{count, plural, one {# payment awaits confirmation} other {# payments await confirmation}}",
         "settleAll": "Settle everything"
+      },
+      "editState": {
+        "ambiguousHeading": "More than one change is in progress for this expense.",
+        "ambiguousBody": "You cannot continue editing until this has been resolved.",
+        "unavailableHeading": "We could not load the editing status.",
+        "unavailableBody": "Try again in a moment. The confirmed expense and settlement remain unchanged.",
+        "retry": "Try again",
+        "backToExpense": "Back to the confirmed expense"
       },
       "sharedDraftDetail": {
         "lifecycle": "Drafts with others",
@@ -1668,7 +1681,7 @@
         "linkToEventHint": "The expense will appear on the event according to the visibility you choose. This choice does not change participants or the split.",
         "chooseKnownParticipant": "Choose a known person",
         "nameOrEmailPlaceholder": "Name or name@example.com",
-        "nameOrEmailHint": "An email sends an invitation for consent. A name alone is saved as a participant who can be linked later.",
+        "nameOrEmailHint": "An email sends an invitation for consent. After saving, link a name-only participant to a Teskeið user under Settlement.",
         "participantEmailInvalid": "Enter a valid email address.",
         "participantNameInvalid": "Enter a name of at most 120 characters.",
         "invitedParticipant": "Invited participant",
@@ -2178,6 +2191,16 @@
         "sharedDraftChangesPending": "Share your changes or stop sharing before confirming the expense.",
         "paymentTotal": "Payments must match the total.",
         "splitTotal": "The allocation must match the total."
+      },
+      "editErrors": {
+        "invalid_input": "The allocation does not add up. Review the amounts and participants, then try again.",
+        "referenced_participant": "One participant cannot be removed because related history or an invitation must be preserved. Keep the participant in the allocation and try again.",
+        "not_allowed": "You no longer have permission to save this change. Go back and reload the expense.",
+        "not_found": "We could not find the expense's current state. Reload the page before trying again.",
+        "conflict": "The expense has changed since you opened it. Reload the page and try again.",
+        "feature_disabled": "This change cannot be saved right now. Go back and reload the expense.",
+        "save_failed": "The change could not be saved. Review the allocation and try again.",
+        "save_outcome_unknown": "We could not confirm the save result. Do not save again yet. Reload the expense and check its current state first."
       }
     },
     "bookkeeping": {

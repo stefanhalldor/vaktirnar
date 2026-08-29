@@ -5,6 +5,7 @@ import { CheckCircle2, EllipsisVertical } from 'lucide-react'
 import { TeskeidActionSheet } from '@/components/teskeid/TeskeidActionSheet'
 import type {
   ExpenseEventIdentityCandidatesView,
+  ExpenseRelationshipIdentityManagementState,
   ExpenseMemberView,
   ExpenseParticipantOption,
   ExpenseSettlementTransferView,
@@ -16,6 +17,7 @@ import { ExpenseRepaymentStatusLines } from './ExpenseRepaymentStatusLines'
 import { ExpenseSettlementIdentityActions } from './ExpenseSettlementIdentityActions'
 import { ExpenseShareCollaboratorPicker } from './ExpenseShareCollaboratorPicker'
 import { useExpenseTranslations } from './i18n.client'
+import { ExpenseRelationshipIdentityPicker } from './ExpenseRelationshipIdentityPicker'
 
 type SettlementCategory = 'outstanding' | 'completed' | 'credit'
 type SettlementSection = SettlementCategory | 'reported'
@@ -192,6 +194,7 @@ export function ExpenseSettlementParticipantList({
   canRenameGuests,
   financialVersion,
   eventIdentityCandidates = null,
+  relationshipIdentityManagementState = { status: 'absent' },
 }: {
   rows: ExpenseSettlementParticipantRow[]
   groupId: string
@@ -202,6 +205,7 @@ export function ExpenseSettlementParticipantList({
   canRenameGuests: boolean
   financialVersion: number
   eventIdentityCandidates?: ExpenseEventIdentityCandidatesView | null
+  relationshipIdentityManagementState?: ExpenseRelationshipIdentityManagementState
 }) {
   const t = useExpenseTranslations()
   const locale = useLocale()
@@ -209,9 +213,21 @@ export function ExpenseSettlementParticipantList({
   const sortedRows = [...rows].sort((left, right) => (
     collator.compare(left.name, right.name) || left.id.localeCompare(right.id)
   ))
+  const relationshipIdentityManagement = relationshipIdentityManagementState.status === 'available'
+    ? relationshipIdentityManagementState.management
+    : null
+  const relationshipFinancialVersion = relationshipIdentityManagement?.financialVersion ?? null
 
   return (
     <div className="space-y-6">
+      {relationshipIdentityManagementState.status === 'unavailable' ? (
+        <p
+          role="status"
+          className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-sm leading-6 text-amber-950"
+        >
+          {t('identity.relationshipUnavailable')}
+        </p>
+      ) : null}
       {SECTION_ORDER.map((section) => {
         const sectionRows = sortedRows.filter((row) => sectionFor(row) === section)
         if (sectionRows.length === 0) return null
@@ -253,6 +269,18 @@ export function ExpenseSettlementParticipantList({
                           eventIdentityCandidates={eventIdentityCandidates}
                         />
                       </div>
+                      {row.identities.map((identity) => {
+                        const management = relationshipIdentityManagement?.members.find((item) => item.memberId === identity.id)
+                        return management && relationshipFinancialVersion !== null ? (
+                          <ExpenseRelationshipIdentityPicker
+                            key={`relationship:${identity.id}`}
+                            expenseId={row.expenseId}
+                            memberId={identity.id}
+                            financialVersion={relationshipFinancialVersion}
+                            candidates={management.candidates}
+                          />
+                        ) : null
+                      })}
                       {row.shareAmountMinor !== null ? (
                         <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                           {t(row.isShared ? 'expenseForm.sharedParticipantShare' : 'expenseForm.participantShare', {

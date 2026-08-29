@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const { mockFrom, mockGetAdmin, mockRpc } = vi.hoisted(() => ({
   mockFrom: vi.fn(),
@@ -12,6 +14,7 @@ vi.mock('@/lib/loans/guard', () => ({ checkFeatureAccess: vi.fn() }))
 vi.mock('@/lib/events/repository.server', () => ({ getExpensePayAllEventLabels: vi.fn() }))
 
 import {
+  getCanonicalExpenseEditDraft,
   getExpenseDashboard,
   getExpenseDraftPublicationLifecycle,
   getExpenseSharedDraftDetail,
@@ -23,6 +26,7 @@ const ACTOR_ID = '10000000-0000-4000-8000-000000000001'
 const DRAFT_ID = '20000000-0000-4000-8000-000000000001'
 const PUBLICATION_ID = '30000000-0000-4000-8000-000000000001'
 const GROUP_ID = '40000000-0000-4000-8000-000000000001'
+const EXPENSE_ID = '50000000-0000-4000-8000-000000000001'
 
 function privateDraftRow() {
   return {
@@ -109,6 +113,44 @@ beforeEach(() => {
 })
 
 describe('SQL159 repository boundaries', () => {
+  it('composes dashboard presentation per exact Expense rather than per group aggregate', () => {
+    const source = readFileSync(join(process.cwd(), 'lib/expenses/repository.server.ts'), 'utf8')
+    expect(source).toContain('expensePresentations: deriveExpenseConfirmedPresentations({')
+    expect(source).toContain('expenses: group.expenses.map((expense) => ({')
+    expect(source).not.toContain('expenseIds: group.expenses.map((expense) => expense.id)')
+  })
+
+  it('resolves one exact actor-owned edit draft and rejects duplicate ambiguity', async () => {
+    const editRow = {
+      ...privateDraftRow(),
+      context_type: 'edit',
+      group_id: GROUP_ID,
+      expense_id: EXPENSE_ID,
+    }
+    mockRpc.mockResolvedValueOnce({ data: [editRow], error: null })
+      .mockResolvedValueOnce({ data: editRow, error: null })
+
+    await expect(getCanonicalExpenseEditDraft(ACTOR_ID, GROUP_ID, EXPENSE_ID)).resolves.toEqual({
+      status: 'single',
+      draft: expect.objectContaining({ id: DRAFT_ID, groupId: GROUP_ID, expenseId: EXPENSE_ID }),
+    })
+    expect(mockRpc).toHaveBeenNthCalledWith(1, 'expense_list_my_private_drafts', { p_actor_id: ACTOR_ID })
+    expect(mockRpc).toHaveBeenNthCalledWith(2, 'expense_get_private_draft', {
+      p_actor_id: ACTOR_ID,
+      p_draft_id: DRAFT_ID,
+    })
+
+    mockRpc.mockReset()
+    mockRpc.mockResolvedValueOnce({
+      data: [editRow, { ...editRow, draft_id: '20000000-0000-4000-8000-000000000002' }],
+      error: null,
+    })
+    await expect(getCanonicalExpenseEditDraft(ACTOR_ID, GROUP_ID, EXPENSE_ID)).resolves.toEqual({
+      status: 'ambiguous',
+    })
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+  })
+
   it('loads exact group shared drafts with only the server actor and group target', async () => {
     mockRpc.mockResolvedValue({
       data: {

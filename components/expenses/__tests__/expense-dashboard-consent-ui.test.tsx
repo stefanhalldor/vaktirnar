@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   ExpenseDashboardView,
+  ExpenseConfirmedPresentationState,
   ExpenseGroupSummaryView,
   ExpenseInvitationView,
   ExpensePaymentProfileV2View,
@@ -64,6 +65,9 @@ const translations: Record<string, string> = {
   'dashboard.unsharedChanges': 'Ódeildar breytingar',
   'dashboard.confirmed': 'Staðfest',
   'dashboard.draftContinue': 'Halda áfram',
+  'dashboard.editInProgress': 'Breytingar í vinnslu · Halda áfram að breyta',
+  'dashboard.editAmbiguous': 'Ekki er hægt að halda breytingum áfram fyrr en drög hafa verið yfirfarin',
+  'dashboard.editLookupUnavailable': 'Ekki tókst að sækja stöðu breytinga',
   'dashboard.splitNeedsAttention': 'Skipting þarf lagfæringu',
   'dashboard.untitledDraft': 'Ónefnd færsla',
   'dashboard.unallocated': 'Óúthlutað {amount}',
@@ -122,11 +126,18 @@ vi.mock('@/lib/expenses/actions', () => ({
 import { ExpenseDashboard } from '@/components/expenses/ExpenseDashboard'
 import { ExpenseInvitationActions } from '@/components/expenses/ExpenseInvitationActions'
 
-function groupSummary(overrides: Partial<ExpenseGroupSummaryView> = {}): ExpenseGroupSummaryView {
+function groupSummary(
+  overrides: Partial<ExpenseGroupSummaryView> & {
+    presentationState?: ExpenseConfirmedPresentationState
+  } = {},
+): ExpenseGroupSummaryView {
+  const { presentationState = { status: 'confirmed' }, ...summaryOverrides } = overrides
+  const id = summaryOverrides.id ?? 'group-1'
+  const name = summaryOverrides.name ?? 'Sumarferð'
   return {
-    id: 'group-1',
+    id,
     kind: 'group',
-    name: 'Sumarferð',
+    name,
     emoji: '🏕️',
     status: 'active',
     role: 'member',
@@ -143,7 +154,13 @@ function groupSummary(overrides: Partial<ExpenseGroupSummaryView> = {}): Expense
     pendingConfirmationCount: 0,
     cancelled: false,
     createdAt: '2026-08-04T09:00:00.000Z',
-    ...overrides,
+    expensePresentations: [{
+      expenseId: `${id}-expense`,
+      title: name,
+      expenseStatus: 'active',
+      presentationState,
+    }],
+    ...summaryOverrides,
   }
 }
 
@@ -356,6 +373,220 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
     expect(draftLink).not.toHaveTextContent('0 kr.')
   })
 
+  it('shows confirmed context once and fails closed when duplicate exact edit drafts exist', async () => {
+    const confirmed = groupSummary({
+      id: '30000000-0000-4000-8000-000000000099',
+      name: 'Kvöldmatur',
+      expensePresentations: [{
+        expenseId: '40000000-0000-4000-8000-000000000099',
+        title: 'Kvöldmatur',
+        expenseStatus: 'active',
+        presentationState: { status: 'ambiguous', reason: 'duplicate_same_expense' },
+      }],
+    })
+    const editDraft = (id: string) => ({
+      id,
+      contextType: 'edit' as const,
+      groupId: confirmed.id,
+      expenseId: '40000000-0000-4000-8000-000000000099',
+      title: 'Kvöldmatur',
+      totalMinor: 10_000,
+      currency: 'ISK',
+      differenceMinor: null,
+      needsAttention: false,
+      savedAt: '2026-08-28T08:00:00.000Z',
+    })
+
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [confirmed],
+        privateDrafts: {
+          status: 'ready',
+          items: [
+            editDraft('53000000-0000-4000-8000-000000000021'),
+            editDraft('53000000-0000-4000-8000-000000000022'),
+          ],
+        },
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getAllByText('Kvöldmatur')).toHaveLength(1)
+    expect(screen.queryByText('Drög fyrir mig')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveTextContent(
+      'Ekki er hægt að halda breytingum áfram fyrr en drög hafa verið yfirfarin',
+    )
+    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveAttribute(
+      'href', '/auth-mvp/utlagt-og-endurgreitt/utgjold/40000000-0000-4000-8000-000000000099',
+    )
+    expect(screen.queryByRole('link', { name: /Halda áfram að breyta/ })).not.toBeInTheDocument()
+  })
+
+  it('attaches one exact edit continuation to the confirmed context row', async () => {
+    const draftId = '53000000-0000-4000-8000-000000000031'
+    const expenseId = '40000000-0000-4000-8000-000000000031'
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [groupSummary({
+          id: '30000000-0000-4000-8000-000000000031',
+          name: 'Kvöldmatur',
+          presentationState: { status: 'editing', draftId, expenseId },
+        })],
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getAllByText('Kvöldmatur')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveAttribute(
+      'href',
+      `/auth-mvp/utlagt-og-endurgreitt/utgjold/${expenseId}/breyta?step=split&draft=${draftId}`,
+    )
+    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveTextContent('Halda áfram að breyta')
+    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveTextContent(
+      'Þú átt eftir að greiða 12.500',
+    )
+  })
+
+  it('returns from editing to confirmed presentation after discard and save transitions', async () => {
+    const groupId = '30000000-0000-4000-8000-000000000041'
+    const expenseId = '40000000-0000-4000-8000-000000000041'
+    const draftId = '53000000-0000-4000-8000-000000000041'
+    const renderState = (state: ExpenseConfirmedPresentationState, name = 'Kvöldmatur') => ExpenseDashboard({
+      dashboard: dashboard({ groups: [groupSummary({ id: groupId, name, presentationState: state })] }),
+      paymentProfile: emptyPaymentProfile(),
+    })
+    const { rerender } = render(await renderState({ status: 'editing', draftId, expenseId }))
+
+    expect(screen.getAllByText('Kvöldmatur')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveTextContent('Breytingar í vinnslu')
+
+    rerender(await renderState({ status: 'confirmed' }))
+    expect(screen.getAllByText('Kvöldmatur')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).not.toHaveTextContent('Breytingar í vinnslu')
+
+    rerender(await renderState({ status: 'confirmed' }, 'Uppfærður kvöldmatur'))
+    expect(screen.queryByText('Kvöldmatur')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Uppfærður kvöldmatur')).toHaveLength(1)
+  })
+
+  it('shows confirmed state once when edit lookup is unavailable', async () => {
+    render(await ExpenseDashboard({
+      dashboard: dashboard({ groups: [groupSummary({
+        presentationState: { status: 'unavailable' },
+      })] }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getAllByText('Sumarferð')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: /Sumarferð/ })).toHaveAttribute(
+      'href', '/auth-mvp/utlagt-og-endurgreitt/utgjold/group-1-expense',
+    )
+    expect(screen.getByRole('link', { name: /Sumarferð/ })).toHaveTextContent(
+      'Ekki tókst að sækja stöðu breytinga',
+    )
+  })
+
+  it('keeps edit continuations for different one-off Expenses independently addressable', async () => {
+    const firstExpenseId = '40000000-0000-4000-8000-000000000061'
+    const secondExpenseId = '40000000-0000-4000-8000-000000000062'
+    const firstDraftId = '53000000-0000-4000-8000-000000000061'
+    const secondDraftId = '53000000-0000-4000-8000-000000000062'
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [],
+        oneOffs: [
+          groupSummary({
+            id: '30000000-0000-4000-8000-000000000061',
+            kind: 'one_off',
+            name: 'Fyrri kostnaður',
+            presentationState: { status: 'editing', draftId: firstDraftId, expenseId: firstExpenseId },
+          }),
+          groupSummary({
+            id: '30000000-0000-4000-8000-000000000062',
+            kind: 'one_off',
+            name: 'Seinni kostnaður',
+            presentationState: { status: 'editing', draftId: secondDraftId, expenseId: secondExpenseId },
+          }),
+        ],
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByRole('link', { name: /Fyrri kostnaður/ })).toHaveAttribute(
+      'href', `/auth-mvp/utlagt-og-endurgreitt/utgjold/${firstExpenseId}/breyta?step=split&draft=${firstDraftId}`,
+    )
+    expect(screen.getByRole('link', { name: /Seinni kostnaður/ })).toHaveAttribute(
+      'href', `/auth-mvp/utlagt-og-endurgreitt/utgjold/${secondExpenseId}/breyta?step=split&draft=${secondDraftId}`,
+    )
+  })
+
+  it('renders two exact editing Expense representations inside the same group', async () => {
+    const groupId = '30000000-0000-4000-8000-000000000071'
+    const firstExpenseId = '40000000-0000-4000-8000-000000000071'
+    const secondExpenseId = '40000000-0000-4000-8000-000000000072'
+    const firstDraftId = '53000000-0000-4000-8000-000000000071'
+    const secondDraftId = '53000000-0000-4000-8000-000000000072'
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [groupSummary({
+          id: groupId,
+          name: 'Ferðakostnaður',
+          expensePresentations: [
+            {
+              expenseId: firstExpenseId,
+              title: 'Bensín',
+              expenseStatus: 'active',
+              presentationState: { status: 'editing', draftId: firstDraftId, expenseId: firstExpenseId },
+            },
+            {
+              expenseId: secondExpenseId,
+              title: 'Matur',
+              expenseStatus: 'active',
+              presentationState: { status: 'editing', draftId: secondDraftId, expenseId: secondExpenseId },
+            },
+          ],
+        } as Partial<ExpenseGroupSummaryView>)],
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByRole('link', { name: /Bensín/ })).toHaveAttribute(
+      'href', `/auth-mvp/utlagt-og-endurgreitt/utgjold/${firstExpenseId}/breyta?step=split&draft=${firstDraftId}`,
+    )
+    expect(screen.getByRole('link', { name: /Matur/ })).toHaveAttribute(
+      'href', `/auth-mvp/utlagt-og-endurgreitt/utgjold/${secondExpenseId}/breyta?step=split&draft=${secondDraftId}`,
+    )
+    expect(screen.getAllByText(/Þú átt eftir að greiða 12\.500/)).toHaveLength(1)
+    expect(screen.queryByText('Fleiri en ein breyting er í vinnslu')).not.toBeInTheDocument()
+  })
+
+  it('keeps genuinely new same-content creation drafts as separate logical rows', async () => {
+    const draft = (id: string) => ({
+      id,
+      contextType: 'one_off' as const,
+      groupId: null,
+      expenseId: null,
+      title: 'Sama efni',
+      totalMinor: 10_000,
+      currency: 'ISK',
+      differenceMinor: null,
+      needsAttention: false,
+      savedAt: '2026-08-28T08:00:00.000Z',
+    })
+    render(await ExpenseDashboard({
+      dashboard: dashboard({
+        groups: [], totals: [],
+        privateDrafts: { status: 'ready', items: [
+          draft('53000000-0000-4000-8000-000000000051'),
+          draft('53000000-0000-4000-8000-000000000052'),
+        ] },
+      }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getAllByRole('link', { name: /Sama efni/ })).toHaveLength(2)
+  })
+
   it('shows shared drafts separately and links each exact viewer to its authorized detail', async () => {
     const authorDraftId = '44444444-4444-4444-8444-444444444444'
     const participantPublicationId = '66666666-6666-4666-8666-666666666666'
@@ -439,7 +670,7 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
 
     expect(screen.getByText('Ekki tókst að sækja drögin þín núna.')).toBeInTheDocument()
     expect(screen.getByText('Ekki tókst að sækja sameiginleg drög núna.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Staðfest' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Færslur' })).toBeInTheDocument()
     expect(screen.getByText('Sumarferð')).toBeInTheDocument()
     expect(screen.getByText(/Þú átt eftir að greiða 12\.500/)).toBeInTheDocument()
   })

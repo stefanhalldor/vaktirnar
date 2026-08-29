@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
-import type { ExpenseGroupSummaryView } from '@/lib/expenses/contracts'
+import type {
+  ExpenseConfirmedPresentationView,
+  ExpenseGroupSummaryView,
+} from '@/lib/expenses/contracts'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { useExpenseTranslations } from './i18n.client'
 
@@ -42,6 +45,29 @@ function getValidAuxiliaryValues(items: ExpenseGroupSummaryView[]) {
     for (const circle of item.relationshipCircles ?? []) circleIds.add(circle.id)
   }
   return { counterpartyKeys, circleIds }
+}
+
+function presentationFor(
+  presentation: ExpenseConfirmedPresentationView,
+  t: ReturnType<typeof useExpenseTranslations>,
+): { href: string; editLabel: string | null } {
+  const confirmedHref = `/auth-mvp/utlagt-og-endurgreitt/utgjold/${presentation.expenseId}`
+  switch (presentation.presentationState.status) {
+    case 'confirmed':
+      return { href: confirmedHref, editLabel: null }
+    case 'editing':
+      return {
+        href: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${presentation.presentationState.expenseId}/breyta?step=split&draft=${presentation.presentationState.draftId}`,
+        editLabel: t('dashboard.editInProgress'),
+      }
+    case 'ambiguous':
+      return {
+        href: confirmedHref,
+        editLabel: t('dashboard.editAmbiguous'),
+      }
+    case 'unavailable':
+      return { href: confirmedHref, editLabel: t('dashboard.editLookupUnavailable') }
+  }
 }
 
 export function ExpenseDashboardDirectory({
@@ -132,7 +158,7 @@ export function ExpenseDashboardDirectory({
 
   return (
     <section aria-labelledby="expense-directory-title" className="space-y-4">
-      <h2 id="expense-directory-title" className="sr-only">{t('dashboard.entries')}</h2>
+      <h2 id="expense-directory-title" className="text-sm font-semibold">{t('dashboard.entries')}</h2>
       <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('dashboard.viewAriaLabel')}>
         {(['all', 'active', 'settled', 'cancelled'] as const).map((candidate) => (
           <button
@@ -186,7 +212,7 @@ export function ExpenseDashboardDirectory({
                 balance.amountMinor > 0 ? 'dashboard.groupOwedToYou' : 'dashboard.groupYouOwe',
                 { amount: formatExpenseMinor(Math.abs(balance.amountMinor), balance.currency, locale) },
               ))
-            const statusLabels = [
+            const financialStatusLabels = [
               ...(group.cancelled
                 ? [t('dashboard.cancelled')]
                 : balanceLabels.length > 0
@@ -198,11 +224,25 @@ export function ExpenseDashboardDirectory({
                 ? [t('dashboard.pendingCount', { count: group.pendingConfirmationCount })]
                 : []),
             ]
-            return (
-              <Link key={group.id} href={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}`} className="flex min-h-14 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+            const renderExpenseRow = (
+              expense: ExpenseConfirmedPresentationView,
+              includeFinancialState: boolean,
+            ) => {
+              const presentation = presentationFor(expense, t)
+              const statusLabels = [
+                ...(presentation.editLabel ? [presentation.editLabel] : []),
+                ...(expense.expenseStatus === 'cancelled'
+                  ? [t('dashboard.cancelled')]
+                  : includeFinancialState
+                    ? financialStatusLabels
+                    : presentation.editLabel
+                      ? []
+                      : [t('dashboard.confirmed')]),
+              ]
+              return <Link key={expense.expenseId} href={presentation.href} className="flex min-h-14 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
                 <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#eef7ea] text-lg">{group.emoji || '🧾'}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold">{group.name}</span>
+                  <span className="block truncate text-sm font-semibold">{expense.title}</span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
                     {statusLabels.join(' · ')}
                   </span>
@@ -210,6 +250,27 @@ export function ExpenseDashboardDirectory({
                 </span>
                 <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" />
               </Link>
+            }
+            if (group.expensePresentations.length === 1) {
+              return renderExpenseRow(group.expensePresentations[0]!, true)
+            }
+            return (
+              <div key={group.id}>
+                <Link
+                  href={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}`}
+                  className="flex min-h-14 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-lg">{group.emoji || '🧾'}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">{group.name}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{financialStatusLabels.join(' · ')}</span>
+                  </span>
+                  <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" />
+                </Link>
+                <div className="divide-y divide-border border-t border-border pl-4">
+                  {group.expensePresentations.map((expense) => renderExpenseRow(expense, false))}
+                </div>
+              </div>
             )
           })}
         </div>

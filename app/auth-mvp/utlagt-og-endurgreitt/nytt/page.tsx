@@ -45,7 +45,7 @@ export default async function NewOneOffExpensePage({ searchParams }: {
   const requestedEventId = typeof query.event === 'string' ? query.event : null
   const hasStandaloneContext = typeof query.context === 'string'
     && query.context === 'standalone'
-  const chooserCandidate = !safeDraft
+  const chooserCandidate = !draftId
     && !hasExplicitEventQuery
     && !hasStandaloneContext
   const draftEventId = safeDraft?.payload.eventId ?? null
@@ -175,6 +175,7 @@ export default async function NewOneOffExpensePage({ searchParams }: {
         participantOptionsError={optionsError}
         circleOptions={circleOptions}
         draft={displayDraft}
+        initialDraftId={draftId ?? undefined}
         publicationLifecycle={publicationLifecycle}
         draftBaseHref={initialEventSource
           ? eventExpensePath(initialEventSource.id)

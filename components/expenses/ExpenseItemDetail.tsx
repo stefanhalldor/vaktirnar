@@ -4,6 +4,7 @@ import { getLocale } from 'next-intl/server'
 import { formatDateOnly } from '@/lib/date-format'
 import type {
   ExpenseEventIdentityCandidatesView,
+  ExpenseRelationshipIdentityManagementState,
   ExpenseGroupView,
   ExpenseItemView,
   ExpenseParticipantOption,
@@ -37,6 +38,7 @@ export async function ExpenseItemDetail({
   eventLinkManagement = null,
   eventLinkManagementUnavailable = false,
   eventIdentityCandidates = null,
+  relationshipIdentityManagementState = { status: 'absent' },
 }: {
   group: ExpenseGroupView
   expense: ExpenseItemView
@@ -49,6 +51,7 @@ export async function ExpenseItemDetail({
   eventLinkManagement?: ExpenseEventLinkManagementV2View | null
   eventLinkManagementUnavailable?: boolean
   eventIdentityCandidates?: ExpenseEventIdentityCandidatesView | null
+  relationshipIdentityManagementState?: ExpenseRelationshipIdentityManagementState
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const hasLockedRepayment = group.repayments.some(
@@ -406,6 +409,7 @@ export async function ExpenseItemDetail({
               && group.canManage}
             financialVersion={group.financialVersion}
             eventIdentityCandidates={eventIdentityCandidates}
+            relationshipIdentityManagementState={relationshipIdentityManagementState}
           />
           {group.kind === 'group' ? (
             <>

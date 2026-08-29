@@ -1316,9 +1316,11 @@
         "status": "Staða"
       },
       "identity": {
-        "linkTeskeidUser": "Tengja Teskeiðarnotanda",
+        "linkTeskeidUser": "Tengja við Teskeiðarnotanda",
         "eventPickerTitle": "Veldu Teskeiðarnotanda",
         "eventPickerDescription": "Aðeins virkir og samþykktir þátttakendur á {event} eru í boði.",
+        "relationshipPickerDescription": "Veldu staðfest Tengsl fyrir þennan aðila.",
+        "relationshipUnavailable": "Ekki tókst að sækja tengslavalkosti. Reyndu aftur síðar.",
         "unknownUser": "Teskeiðarnotandi",
         "binding": "Tengi..."
       },
@@ -1375,6 +1377,9 @@
         "unsharedChanges": "Ódeildar breytingar",
         "confirmed": "Staðfest",
         "draftContinue": "Halda áfram",
+        "editInProgress": "Breytingar í vinnslu · Halda áfram að breyta",
+        "editAmbiguous": "Ekki er hægt að halda breytingum áfram fyrr en drög hafa verið yfirfarin",
+        "editLookupUnavailable": "Ekki tókst að sækja stöðu breytinga",
         "splitNeedsAttention": "Skipting þarf lagfæringu",
         "untitledDraft": "Ónefnd færsla",
         "unallocated": "Óúthlutað {amount}",
@@ -1394,6 +1399,14 @@
         "expenseCount": "{count, plural, one {# útgjald} other {# útgjöld}}",
         "pendingCount": "{count, plural, one {# greiðsla bíður staðfestingar} other {# greiðslur bíða staðfestingar}}",
         "settleAll": "Gera allt upp"
+      },
+      "editState": {
+        "ambiguousHeading": "Fleiri en ein breyting er í vinnslu fyrir þennan kostnað.",
+        "ambiguousBody": "Ekki er hægt að halda áfram fyrr en staðan hefur verið leyst.",
+        "unavailableHeading": "Ekki tókst að sækja stöðu breytinga.",
+        "unavailableBody": "Reyndu aftur eftir augnablik. Staðfesti kostnaðurinn og uppgjörið haldast óbreytt.",
+        "retry": "Reyna aftur",
+        "backToExpense": "Til baka í staðfestan kostnað"
       },
       "sharedDraftDetail": {
         "lifecycle": "Drög með öðrum",
@@ -1672,7 +1685,7 @@
         "linkToEventHint": "Kostnaðurinn birtist á viðburðinum samkvæmt sýnileikanum sem þú velur. Valið breytir ekki þátttakendum eða skiptingu.",
         "chooseKnownParticipant": "Veldu þekktan aðila",
         "nameOrEmailPlaceholder": "Nafn eða nafn@netfang.is",
-        "nameOrEmailHint": "Netfang sendir boð til samþykktar. Nafn eitt og sér vistast sem þátttakandi sem má tengja síðar.",
+        "nameOrEmailHint": "Netfang sendir boð til samþykktar. Nafn eitt og sér má tengja við Teskeiðarnotanda undir Uppgjöri eftir vistun.",
         "participantEmailInvalid": "Sláðu inn gilt netfang.",
         "participantNameInvalid": "Sláðu inn nafn sem er að hámarki 120 stafir.",
         "invitedParticipant": "Boðinn þátttakandi",
@@ -2182,6 +2195,16 @@
         "sharedDraftChangesPending": "Deildu breytingunum eða hættu að deila áður en þú staðfestir kostnaðinn.",
         "paymentTotal": "Greiðslurnar þurfa að stemma við heildarupphæðina.",
         "splitTotal": "Skiptingin þarf að stemma við heildarupphæðina."
+      },
+      "editErrors": {
+        "invalid_input": "Skiptingin gengur ekki upp. Farðu yfir upphæðir og þátttakendur og reyndu aftur.",
+        "referenced_participant": "Ekki er hægt að fjarlægja einn þátttakanda vegna tengdrar sögu eða boðs. Haltu þátttakandanum inni í skiptingunni og reyndu aftur.",
+        "not_allowed": "Þú hefur ekki lengur heimild til að vista þessa breytingu. Farðu til baka og endurhladdu kostnaðinn.",
+        "not_found": "Ekki tókst að finna núverandi stöðu kostnaðarins. Endurhladdu síðuna áður en þú reynir aftur.",
+        "conflict": "Kostnaðurinn hefur breyst síðan þú opnaðir hann. Endurhladdu síðuna og reyndu aftur.",
+        "feature_disabled": "Ekki er hægt að vista breytinguna núna. Farðu til baka og endurhladdu kostnaðinn.",
+        "save_failed": "Ekki tókst að vista breytinguna. Farðu yfir skiptinguna og reyndu aftur.",
+        "save_outcome_unknown": "Ekki tókst að staðfesta niðurstöðu vistunar. Ekki vista aftur strax. Endurhladdu kostnaðinn og athugaðu stöðuna fyrst."
       }
     },
     "bookkeeping": {

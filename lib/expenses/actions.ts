@@ -124,7 +124,8 @@ function actionError(error: unknown): ExpenseActionResult<never> {
   }
   const message = error instanceof Error ? error.message.toLowerCase() : ''
   const code: ExpenseActionErrorCode =
-    message.includes('recipient_unavailable') ? 'recipient_unavailable'
+    message.includes('expense_share_has_durable_reference') ? 'referenced_participant'
+      : message.includes('recipient_unavailable') ? 'recipient_unavailable'
       : (message.includes('teskeid_event_revision_conflict')
         || message.includes('teskeid_event_roster_conflict')
         || message.includes('event_guest_not_available')) ? 'event_roster_changed'
@@ -284,7 +285,12 @@ async function deleteExpenseDraftAfterSave(actorUserId: string, draftId: string 
     p_actor_id: actorUserId,
     p_draft_id: draftId,
   })
-  if (error) console.error('[expenses] saved expense but draft cleanup failed')
+  if (error) {
+    console.error(
+      '[expenses] saved expense but draft cleanup failed',
+      safeExpenseFailureDiagnostic(new ExpenseRpcError(error)),
+    )
+  }
 }
 
 export async function saveExpenseDraft(
@@ -309,10 +315,11 @@ export async function saveExpenseDraft(
     const persist = async (
       persistedPayload: ExpenseDraftPayload,
       expectedVersion: number | null,
+      draftId = value.draft_id,
     ) => {
       const { data, error } = await getAdmin().rpc('expense_save_private_draft', {
         p_actor_id: user.id,
-        p_draft_id: value.draft_id,
+        p_draft_id: draftId,
         p_context_type: value.context_type,
         p_group_id: value.group_id,
         p_expense_id: value.expense_id,
@@ -322,17 +329,23 @@ export async function saveExpenseDraft(
       })
       if (error) rpcError(error)
       const result = resultObject(data)
-      const draftId = String(result.draft_id ?? '')
+      const returnedDraftId = String(result.draft_id ?? '')
       const version = Number(result.draft_version)
       const savedAt = String(result.saved_at ?? '')
-      if (!draftId || !Number.isSafeInteger(version) || version < 1 || !savedAt) {
+      if (!returnedDraftId || !Number.isSafeInteger(version) || version < 1 || !savedAt) {
         throw new Error('expense_draft_save_failed')
       }
-      return { draftId, version, savedAt }
+      return { draftId: returnedDraftId, version, savedAt }
     }
 
     if (value.context_type !== 'one_off' || value.expense_id !== null) {
-      const saved = await persist(payload, value.expected_version)
+      let saved = await persist(payload, value.expected_version)
+      if (saved.draftId !== value.draft_id) {
+        if (value.context_type !== 'edit' || value.expected_version !== null) {
+          throw new Error('expense_draft_save_failed')
+        }
+        saved = await persist(payload, saved.version, saved.draftId)
+      }
       return {
         ok: true,
         data: {
@@ -1204,6 +1217,42 @@ export async function bindExpenseMemberEventIdentity(
   }
 }
 
+export async function bindExpenseMemberRelationshipIdentity(input: unknown): Promise<ExpenseActionResult<{
+  expenseId: string; memberId: string; financialVersion: number
+}>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const { BindExpenseMemberRelationshipIdentitySchema } = await import('./validation')
+    const parsed = BindExpenseMemberRelationshipIdentitySchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const value = parsed.data
+    const { data, error } = await getAdmin().rpc('expense_bind_member_relationship_identity_v1', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_expense_id: value.expense_id,
+      p_member_id: value.member_id,
+      p_relationship_id: value.relationship_id,
+      p_expected_financial_version: value.expected_financial_version,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const resultKeys = Object.keys(result).sort()
+    const expectedResultKeys = ['expense_id', 'financial_version', 'group_id', 'member_id']
+    const financialVersion = Number(result.financial_version)
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    if (JSON.stringify(resultKeys) !== JSON.stringify(expectedResultKeys)
+      || result.expense_id !== value.expense_id || !uuidPattern.test(String(result.expense_id))
+      || result.member_id !== value.member_id || !uuidPattern.test(String(result.member_id))
+      || !uuidPattern.test(String(result.group_id))
+      || !Number.isSafeInteger(financialVersion)) throw new Error('expense_identity_result_invalid')
+    revalidateExpensePaths(String(result.group_id), value.expense_id)
+    return { ok: true, data: { expenseId: value.expense_id, memberId: value.member_id, financialVersion } }
+  } catch (error) {
+    console.error('[expenses] bind relationship identity failed', safeExpenseFailureDiagnostic(error))
+    return actionError(error)
+  }
+}
+
 export async function disputeExpenseClaim(
   input: unknown,
 ): Promise<ExpenseActionResult<{
@@ -1256,6 +1305,7 @@ export async function updateExpense(
   input: unknown,
 ): Promise<ExpenseActionResult<{ groupId: string; expenseId: string; financialVersion: number }>> {
   const { user } = await guardExpenseAccess()
+  let financialRpcAttempted = false
   try {
     const parsed = UpdateExpenseSchema.safeParse(input)
     if (!parsed.success) return { ok: false, error: 'invalid_input' }
@@ -1343,6 +1393,7 @@ export async function updateExpense(
       amount_minor: share.amountMinor,
     }))
 
+    financialRpcAttempted = true
     const { data, error } = await admin.rpc('expense_update_expense_with_participants', {
       p_actor_id: user.id,
       p_request_id: value.request_id,
@@ -1378,15 +1429,32 @@ export async function updateExpense(
       throw new Error('expense_save_failed')
     }
     await deleteExpenseDraftAfterSave(user.id, value.draft_id)
-    await deliverExpenseInvitationIds(user.id, result.invitation_ids)
+    try {
+      await deliverExpenseInvitationIds(user.id, result.invitation_ids)
+    } catch (error) {
+      // Invitation rows and the financial mutation are already committed. Keep
+      // delivery failure observable without misreporting the financial save.
+      console.error(
+        '[expenses] update invitation delivery follow-up failed',
+        safeExpenseFailureDiagnostic(error),
+      )
+    }
     revalidateExpensePaths(persistedGroupId, persistedExpenseId)
     return {
       ok: true,
       data: { groupId: persistedGroupId, expenseId: persistedExpenseId, financialVersion },
     }
   } catch (error) {
-    console.error('[expenses] update expense failed')
-    return actionError(error)
+    console.error('[expenses] update expense failed', safeExpenseFailureDiagnostic(error))
+    const mapped = actionError(error)
+    if (
+      financialRpcAttempted
+      && mapped.error === 'save_failed'
+      && (!(error instanceof ExpenseRpcError) || error.sqlState === 'unknown')
+    ) {
+      return { ok: false, error: 'save_outcome_unknown' }
+    }
+    return mapped
   }
 }
 

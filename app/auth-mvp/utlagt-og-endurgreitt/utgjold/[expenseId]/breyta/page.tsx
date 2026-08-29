@@ -1,4 +1,5 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
+import Link from 'next/link'
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
@@ -8,7 +9,10 @@ import { expenseDetailHref, parseExpenseDraftId, parseExpenseFlowStep } from '@/
 import { canEditExpense } from '@/lib/expenses/policy'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
-import { getExpenseItemView, getExpensePrivateDraft } from '@/lib/expenses/repository.server'
+import {
+  getCanonicalExpenseEditDraft,
+  getExpenseItemView,
+} from '@/lib/expenses/repository.server'
 
 export default async function EditExpensePage({
   params,
@@ -43,12 +47,56 @@ export default async function EditExpensePage({
   if (!canEdit) notFound()
 
   const draftId = parseExpenseDraftId(query.draft)
-  const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
-  const safeDraft = draft?.contextType === 'edit'
-    && draft.groupId === group.id
-    && draft.expenseId === expense.id
-    ? draft
-    : null
+  const canonical = await getCanonicalExpenseEditDraft(user.id, group.id, expense.id)
+  if (canonical.status === 'ambiguous' || canonical.status === 'unavailable') {
+    const detailHref = expenseDetailHref(expense.id)
+    const retryHref = `${detailHref}/breyta?step=${parseExpenseFlowStep(query.step)}`
+    const unavailable = canonical.status === 'unavailable'
+    return (
+      <ExpenseShell
+        title={expense.title}
+        homeLabel={t('homeLabel')}
+        backHref={detailHref}
+        backLabel={t('back')}
+        closedTestingFeature="utlagt-og-endurgreitt"
+      >
+        <section
+          role={unavailable ? 'status' : 'alert'}
+          aria-labelledby="expense-edit-state-heading"
+          className="space-y-4 border-y border-border py-6"
+        >
+          <div className="space-y-2">
+            <h2 id="expense-edit-state-heading" className="text-base font-semibold">
+              {t(unavailable ? 'editState.unavailableHeading' : 'editState.ambiguousHeading')}
+            </h2>
+            <p className="text-sm leading-6 text-muted-foreground">
+              {t(unavailable ? 'editState.unavailableBody' : 'editState.ambiguousBody')}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {unavailable ? (
+              <Link
+                href={retryHref}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                {t('editState.retry')}
+              </Link>
+            ) : null}
+            <Link
+              href={detailHref}
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {t('editState.backToExpense')}
+            </Link>
+          </div>
+        </section>
+      </ExpenseShell>
+    )
+  }
+  if (canonical.status === 'single' && draftId !== canonical.draft.id) {
+    redirect(`${expenseDetailHref(expense.id)}/breyta?step=${canonical.draft.currentStep}&draft=${canonical.draft.id}`)
+  }
+  const safeDraft = canonical.status === 'single' ? canonical.draft : null
   const initialStep = safeDraft?.currentStep ?? parseExpenseFlowStep(query.step)
   const referencedMemberIds = new Set([
     ...expense.payments.map((payment) => payment.memberId),
@@ -87,6 +135,7 @@ export default async function EditExpensePage({
         participantOptionsError={participantOptionsError}
         eventContext={isEventContext}
         draft={safeDraft}
+        initialDraftId={draftId ?? undefined}
         draftBaseHref={`${expenseDetailHref(expense.id)}/breyta`}
         initialMembers={group.members
           .filter((member) => (

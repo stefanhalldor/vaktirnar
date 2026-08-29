@@ -23,6 +23,7 @@ export type ExpenseIdentityProofKind =
 
 export type ExpenseActionErrorCode =
   | 'invalid_input'
+  | 'referenced_participant'
   | 'not_allowed'
   | 'not_found'
   | 'conflict'
@@ -31,6 +32,7 @@ export type ExpenseActionErrorCode =
   | 'recipient_unavailable'
   | 'delivery_failed'
   | 'save_failed'
+  | 'save_outcome_unknown'
   | 'load_failed'
 
 export type ExpenseActionResult<T = undefined> =
@@ -316,6 +318,23 @@ export interface ExpenseEventIdentityCandidatesView {
   candidates: ExpenseEventIdentityCandidateView[]
 }
 
+export interface ExpenseRelationshipIdentityManagementView {
+  expenseId: string
+  financialVersion: number
+  members: Array<{
+    memberId: string
+    candidates: Array<{ relationshipId: string; displayName: string }>
+  }>
+}
+
+export type ExpenseRelationshipIdentityManagementState =
+  | {
+      status: 'available'
+      management: ExpenseRelationshipIdentityManagementView
+    }
+  | { status: 'absent' }
+  | { status: 'unavailable' }
+
 export type ExpensePayAllPaymentDetailsView =
   | {
       paymentDetailsState: 'available'
@@ -525,7 +544,25 @@ export interface ExpenseGroupSummaryView {
   counterparties?: Array<{ key: string; label: string }>
   /** Reusable relationship circles explicitly attached to this expense context. */
   relationshipCircles?: Array<{ id: string; name: string }>
+  /** One exhaustive presentation per exact confirmed Expense identity. */
+  expensePresentations: ExpenseConfirmedPresentationView[]
 }
+
+export interface ExpenseConfirmedPresentationView {
+  expenseId: string
+  title: string
+  expenseStatus: 'active' | 'cancelled'
+  presentationState: ExpenseConfirmedPresentationState
+}
+
+export type ExpenseConfirmedPresentationState =
+  | { status: 'confirmed' }
+  | { status: 'editing'; draftId: string; expenseId: string }
+  | {
+      status: 'ambiguous'
+      reason: 'duplicate_same_expense'
+    }
+  | { status: 'unavailable' }
 
 export interface ExpenseInvitationView {
   groupId: string

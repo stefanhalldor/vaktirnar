@@ -40,6 +40,8 @@ describe('independent event and expense integration', () => {
     expect(page).toContain('hydrateExpenseDraftEventGuestLabels(')
     expect(page).toContain("t('expenseForm.eventGuestUnavailableLabel')")
     expect(page).toContain('draft={displayDraft}')
+    expect(page).toContain('initialDraftId={draftId ?? undefined}')
+    expect(page).toContain('const chooserCandidate = !draftId')
     expect(page).toContain('eventSelectionWarning={eventSelectionWarning}')
     expect(page).toContain('eventSources={eventSources}')
     expect(page).not.toContain('listEvents(')

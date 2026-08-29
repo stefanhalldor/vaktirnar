@@ -113,13 +113,22 @@ const translations: Record<string, string> = {
   'repayment.confirmedReportedAt': 'Greiðsla tilkynnt {date} · staðfest',
   'errors.detailsRequired': 'Fylltu út upplýsingar.', 'errors.participant_required': 'Bættu við aðila.',
   'errors.paymentTotal': 'Greiðslur stemma ekki.', 'errors.splitTotal': 'Skipting stemmir ekki.',
-  'errors.invalid_input': 'Ógilt.', 'errors.draftSaveFailed': 'Vistun mistókst.',
+  'errors.invalid_input': 'Ógilt.',
+  'errors.draftSaveFailed': 'Vistun mistókst.',
   'errors.draftPublicationUnavailable': 'Ekki tókst að staðfesta deilingarstöðu.',
   'errors.confirmExpenseAllocation': 'Staðfestu rétta skiptingu.',
   'errors.sharedDraftChangesPending': 'Deildu breytingunum fyrst.',
   'errors.conflict': 'Gögnin hafa breyst.',
   'errors.event_roster_changed': 'Gestalistinn hefur breyst. Hreinsaðu viðburðarvalið og veldu aftur.',
   'errors.save_failed': 'Ekki tókst að vista.',
+  'editErrors.invalid_input': 'Skiptingin gengur ekki upp. Farðu yfir upphæðir og þátttakendur og reyndu aftur.',
+  'editErrors.referenced_participant': 'Ekki er hægt að fjarlægja einn þátttakanda vegna tengdrar sögu eða boðs. Haltu þátttakandanum inni í skiptingunni og reyndu aftur.',
+  'editErrors.not_allowed': 'Þú hefur ekki lengur heimild til að vista þessa breytingu. Farðu til baka og endurhlaðaðu kostnaðinn.',
+  'editErrors.not_found': 'Ekki tókst að finna núverandi stöðu kostnaðarins. Endurhlaðaðu síðuna áður en þú reynir aftur.',
+  'editErrors.conflict': 'Kostnaðurinn hefur breyst síðan þú opnaðir hann. Endurhlaðaðu síðuna og reyndu aftur.',
+  'editErrors.feature_disabled': 'Ekki er hægt að vista breytinguna núna. Farðu til baka og endurhlaðaðu kostnaðinn.',
+  'editErrors.save_failed': 'Ekki tókst að vista breytinguna. Farðu yfir skiptinguna og reyndu aftur.',
+  'editErrors.save_outcome_unknown': 'Ekki tókst að staðfesta niðurstöðu vistunar. Ekki vista aftur strax. Endurhlaðaðu kostnaðinn og athugaðu stöðuna fyrst.',
 }
 
 function translate(rawKey: string, values?: Record<string, string | number>): string {
@@ -541,6 +550,49 @@ describe('ExpenseForm simplified split and autosave', () => {
     }))
     expect(mocks.replace).toHaveBeenCalledWith(expect.stringMatching(/^\/draft\?draft=/))
     expect(screen.queryByText('Breytingar vistaðar')).not.toBeInTheDocument()
+  })
+
+  it('binds the exact fresh draft identity in the URL before the first durable save', async () => {
+    const replaceState = vi.spyOn(window.history, 'replaceState')
+    renderForm({ mode: 'one_off', groupId: undefined })
+    fillDetails()
+    await next('Áfram í skiptingu')
+
+    expect(replaceState).toHaveBeenCalledWith(
+      window.history.state,
+      '',
+      expect.stringMatching(/^\/draft\?draft=[0-9a-f-]{36}$/),
+    )
+    expect(replaceState.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.saveDraft.mock.invocationCallOrder[0]!,
+    )
+    expect(mocks.saveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      context_type: 'one_off',
+      expected_version: null,
+    }))
+  })
+
+  it('reuses an adopted non-durable draft identity across failed save and remount', async () => {
+    const adoptedDraftId = '74000000-0000-4000-8000-000000000001'
+    mocks.saveDraft.mockRejectedValueOnce(new Error('lost before durable write'))
+    const first = renderForm({ mode: 'one_off', groupId: undefined, initialDraftId: adoptedDraftId })
+    fillDetails()
+    await next('Áfram í skiptingu')
+    expect(mocks.saveDraft).toHaveBeenLastCalledWith(expect.objectContaining({ draft_id: adoptedDraftId }))
+
+    first.unmount()
+    mocks.saveDraft.mockResolvedValueOnce({
+      ok: true,
+      data: { draftId: adoptedDraftId, version: 1, savedAt: '2026-08-05T12:00:00Z', relationStatus: 'unchanged', eventId: null, eventRosterRevision: null, privacyFailClosed: false },
+    })
+    renderForm({ mode: 'one_off', groupId: undefined, initialDraftId: adoptedDraftId })
+    fillDetails()
+    await next('Áfram í skiptingu')
+    expect(mocks.saveDraft).toHaveBeenLastCalledWith(expect.objectContaining({
+      draft_id: adoptedDraftId,
+      expected_version: null,
+    }))
   })
 
   it('lets an incomplete private details step save and close without validation or publication', async () => {
@@ -1167,6 +1219,62 @@ describe('ExpenseForm simplified split and autosave', () => {
       title: 'Nýtt heiti',
       note: 'Ný lýsing',
     })))
+  })
+
+  it('preserves edit values and renders truthful translated copy for an uncertain save outcome', async () => {
+    const editExpense: ExpenseItemView = {
+      id: 'expense-1', groupId: 'group-1', title: 'Gamalt heiti', totalMinor: 10_000,
+      currency: 'ISK', incurredOn: '2026-08-05', category: null, note: 'Gömul lýsing',
+      status: 'active', splitMethod: 'weighted', createdBySelf: true,
+      createdAt: '2026-08-05T12:00:00Z',
+      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
+      shares: [
+        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
+        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
+      ],
+      revisions: [],
+    }
+    mocks.update.mockResolvedValueOnce({ ok: false, error: 'save_outcome_unknown' })
+    renderForm({ edit: { expense: editExpense, expectedFinancialVersion: 1 } })
+    const title = screen.getByRole('textbox', { name: 'Heiti útgjalds' })
+    const description = screen.getByRole('textbox', { name: /Lýsing/ })
+    fireEvent.change(title, { target: { value: 'Nýtt heiti sem má ekki tapast' } })
+    fireEvent.change(description, { target: { value: 'Ný lýsing sem má ekki tapast' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vista' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Ekki tókst að staðfesta niðurstöðu vistunar. Ekki vista aftur strax.',
+    )
+    expect(title).toHaveValue('Nýtt heiti sem má ekki tapast')
+    expect(description).toHaveValue('Ný lýsing sem má ekki tapast')
+    expect(screen.queryByText(/sqlstate|expense_update|rpc|40000000-/i)).not.toBeInTheDocument()
+    expect(mocks.push).not.toHaveBeenCalled()
+  })
+
+  it('keeps edit values and explains a durably referenced participant removal', async () => {
+    const editExpense: ExpenseItemView = {
+      id: 'expense-1', groupId: 'group-1', title: 'Kvöldmatur', totalMinor: 10_000,
+      currency: 'ISK', incurredOn: '2026-08-05', category: 'food', note: null,
+      status: 'active', splitMethod: 'weighted', createdBySelf: true,
+      createdAt: '2026-08-05T12:00:00Z',
+      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
+      shares: [
+        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
+        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
+      ],
+      revisions: [],
+    }
+    mocks.update.mockResolvedValueOnce({ ok: false, error: 'referenced_participant' })
+    renderForm({ edit: { expense: editExpense, expectedFinancialVersion: 1 } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vista' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Haltu þátttakandanum inni í skiptingunni og reyndu aftur.',
+    )
+    expect(screen.queryByText(/sqlstate|expense_share|collaborator|invitation|rpc/i)).not.toBeInTheDocument()
+    expect(mocks.push).not.toHaveBeenCalled()
   })
 
   it('keeps settled edit navigation local when SQL102 drafts are unavailable', async () => {

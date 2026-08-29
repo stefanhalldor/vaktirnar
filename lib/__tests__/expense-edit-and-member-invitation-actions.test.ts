@@ -55,6 +55,7 @@ vi.mock('@/lib/relationships/upsert-source.server', () => ({
 import {
   addExpenseShareCollaborator,
   bindExpenseMemberEventIdentity,
+  bindExpenseMemberRelationshipIdentity,
   cancelExpenseMemberInvitation,
   disputeExpenseClaim,
   linkExpenseGuestMember,
@@ -63,7 +64,7 @@ import {
   respondExpenseMemberInvitation,
   updateExpense,
 } from '@/lib/expenses/actions'
-import { UpdateExpenseSchema } from '@/lib/expenses/validation'
+import { BindExpenseMemberRelationshipIdentitySchema, UpdateExpenseSchema } from '@/lib/expenses/validation'
 
 const ACTOR_ID = '10000000-0000-4000-8000-000000000001'
 const OWNER_ID = '10000000-0000-4000-8000-000000000002'
@@ -76,6 +77,7 @@ const EXPENSE_ID = '40000000-0000-4000-8000-000000000001'
 const INVITATION_ID = '50000000-0000-4000-8000-000000000001'
 const REQUEST_ID = '60000000-0000-4000-8000-000000000001'
 const EVENT_PARTICIPANT_ID = '70000000-0000-4000-8000-000000000001'
+const RELATIONSHIP_ID = '71000000-0000-4000-8000-000000000001'
 
 function updateInput(overrides: Record<string, unknown> = {}) {
   return {
@@ -98,7 +100,7 @@ function updateInput(overrides: Record<string, unknown> = {}) {
 }
 
 function setRpcResponses(
-  responses: Record<string, { data: unknown; error: null | { message: string } }>,
+  responses: Record<string, { data: unknown; error: null | { message: string; code?: string } }>,
 ) {
   mockRpc.mockImplementation(async (name: string) => responses[name] ?? {
     data: null,
@@ -189,6 +191,32 @@ beforeEach(() => {
 })
 
 describe('canonical identity and claim actions', () => {
+  it('uses the guarded actor and accepts only the exact Relationship binding result', async () => {
+    setRpcResponses({ expense_bind_member_relationship_identity_v1: { data: {
+      expense_id: EXPENSE_ID, group_id: GROUP_ID, member_id: GUEST_MEMBER_ID, financial_version: 8,
+    }, error: null } })
+    await expect(bindExpenseMemberRelationshipIdentity({ expense_id: EXPENSE_ID, member_id: GUEST_MEMBER_ID,
+      relationship_id: RELATIONSHIP_ID, expected_financial_version: 7, request_id: REQUEST_ID,
+    })).resolves.toEqual({ ok: true, data: { expenseId: EXPENSE_ID, memberId: GUEST_MEMBER_ID, financialVersion: 8 } })
+    expect(mockRpc).toHaveBeenCalledWith('expense_bind_member_relationship_identity_v1', {
+      p_actor_id: ACTOR_ID, p_request_id: REQUEST_ID, p_expense_id: EXPENSE_ID,
+      p_member_id: GUEST_MEMBER_ID, p_relationship_id: RELATIONSHIP_ID, p_expected_financial_version: 7,
+    })
+  })
+
+  it.each([
+    { expense_id: EXPENSE_ID, group_id: GROUP_ID, member_id: GUEST_MEMBER_ID, financial_version: 8, extra: true },
+    { expense_id: EXPENSE_ID, member_id: GUEST_MEMBER_ID, financial_version: 8 },
+    { expense_id: EXPENSE_ID, group_id: 'bad', member_id: GUEST_MEMBER_ID, financial_version: 8 },
+  ])('fails closed on malformed Relationship binding result %#', async (data) => {
+    setRpcResponses({ expense_bind_member_relationship_identity_v1: { data, error: null } })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const input = { expense_id: EXPENSE_ID, member_id: GUEST_MEMBER_ID,
+      relationship_id: RELATIONSHIP_ID, expected_financial_version: 7, request_id: REQUEST_ID,
+    }
+    expect(BindExpenseMemberRelationshipIdentitySchema.safeParse(input).success).toBe(true)
+    await expect(bindExpenseMemberRelationshipIdentity(input)).resolves.toEqual({ ok: false, error: 'invalid_input' })
+  })
   it('passes only opaque Event candidate identity to the authoritative repair RPC', async () => {
     setRpcResponses({
       expense_bind_member_event_identity: {
@@ -559,6 +587,134 @@ describe('updateExpense RPC mapping', () => {
       'expense_update_expense_with_participants',
       expect.objectContaining({ p_removed_member_ids: [GUEST_MEMBER_ID] }),
     )
+  })
+
+  it.each([
+    {
+      label: 'durably referenced participant removal',
+      message: `expense_share_has_durable_reference ${EXPENSE_ID} actor@example.is`,
+      code: 'P0001',
+      expectedError: 'referenced_participant',
+      expectedDiagnostic: { sqlState: 'P0001', reason: 'expense_share_has_durable_reference' },
+    },
+    {
+      label: 'financial version conflict',
+      message: `expense_financial_version_conflict ${EXPENSE_ID} actor@example.is`,
+      code: 'P0001',
+      expectedError: 'conflict',
+      expectedDiagnostic: { sqlState: 'P0001', reason: 'expense_financial_version_conflict' },
+    },
+    {
+      label: 'invalid split',
+      message: `expense_split_total_mismatch ${EXPENSE_ID} actor@example.is`,
+      code: 'P0001',
+      expectedError: 'invalid_input',
+      expectedDiagnostic: { sqlState: 'P0001', reason: 'expense_split_total_mismatch' },
+    },
+    {
+      label: 'not allowed',
+      message: `expense_update_not_allowed ${EXPENSE_ID} actor@example.is`,
+      code: 'P0001',
+      expectedError: 'not_allowed',
+      expectedDiagnostic: { sqlState: 'P0001', reason: 'expense_update_not_allowed' },
+    },
+    {
+      label: 'not found',
+      message: `expense_not_found ${EXPENSE_ID} actor@example.is`,
+      code: 'P0001',
+      expectedError: 'not_found',
+      expectedDiagnostic: { sqlState: 'P0001', reason: 'expense_not_found' },
+    },
+    {
+      label: 'catalog error',
+      message: `column "expense.private_payload" does not exist for ${EXPENSE_ID} actor@example.is`,
+      code: '42703',
+      expectedError: 'save_failed',
+      expectedDiagnostic: { sqlState: '42703', reason: 'unknown', identifier: 'expense.private_payload' },
+    },
+    {
+      label: 'unknown outcome',
+      message: `transport ended for ${EXPENSE_ID} actor@example.is Private Person`,
+      code: undefined,
+      expectedError: 'save_outcome_unknown',
+      expectedDiagnostic: { sqlState: 'unknown', reason: 'unknown' },
+    },
+  ])('maps and logs a bounded safe diagnostic for $label', async ({
+    message, code, expectedError, expectedDiagnostic,
+  }) => {
+    setRpcResponses({
+      expense_update_expense_with_participants: {
+        data: null,
+        error: { message, ...(code ? { code } : {}) },
+      },
+    })
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(updateExpense(updateInput())).resolves.toEqual({ ok: false, error: expectedError })
+    expect(errorLog).toHaveBeenCalledWith('[expenses] update expense failed', expectedDiagnostic)
+    const logged = JSON.stringify(errorLog.mock.calls)
+    expect(logged).not.toContain(EXPENSE_ID)
+    expect(logged).not.toContain(ACTOR_ID)
+    expect(logged).not.toMatch(/actor@example\.is|Private Person|transport ended/i)
+  })
+
+  it('keeps a committed financial update successful when invitation delivery fails', async () => {
+    setRpcResponses({
+      expense_update_expense_with_participants: {
+        data: {
+          group_id: GROUP_ID,
+          expense_id: EXPENSE_ID,
+          financial_version: 8,
+          invitation_ids: [INVITATION_ID],
+        },
+        error: null,
+      },
+      expense_reserve_scoped_member_invitation_send: {
+        data: null,
+        error: {
+          message: `expense_delivery_unavailable ${INVITATION_ID} owner@example.is`,
+          code: 'P0001',
+        },
+      },
+    })
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(updateExpense(updateInput())).resolves.toEqual({
+      ok: true,
+      data: { groupId: GROUP_ID, expenseId: EXPENSE_ID, financialVersion: 8 },
+    })
+    expect(errorLog).toHaveBeenCalledWith(
+      '[expenses] update invitation delivery follow-up failed',
+      { sqlState: 'P0001', reason: 'expense_delivery_unavailable' },
+    )
+    expect(JSON.stringify(errorLog.mock.calls)).not.toMatch(new RegExp(`${INVITATION_ID}|owner@example\\.is`, 'i'))
+  })
+
+  it('keeps a committed financial update successful and logs bounded draft cleanup failure', async () => {
+    setRpcResponses({
+      expense_update_expense_with_participants: {
+        data: { group_id: GROUP_ID, expense_id: EXPENSE_ID, financial_version: 8 },
+        error: null,
+      },
+      expense_delete_private_draft: {
+        data: null,
+        error: {
+          message: `expense_draft_conflict ${EXPENSE_ID} actor@example.is`,
+          code: 'P0001',
+        },
+      },
+    })
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(updateExpense(updateInput({ draft_id: REQUEST_ID }))).resolves.toEqual({
+      ok: true,
+      data: { groupId: GROUP_ID, expenseId: EXPENSE_ID, financialVersion: 8 },
+    })
+    expect(errorLog).toHaveBeenCalledWith(
+      '[expenses] saved expense but draft cleanup failed',
+      { sqlState: 'P0001', reason: 'expense_draft_conflict' },
+    )
+    expect(JSON.stringify(errorLog.mock.calls)).not.toMatch(new RegExp(`${EXPENSE_ID}|actor@example\\.is`, 'i'))
   })
 })
 

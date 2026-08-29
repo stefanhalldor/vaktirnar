@@ -73,7 +73,9 @@ export async function ExpenseDashboard({
       : []
   )))
   const privateDrafts = dashboard.privateDrafts.status === 'ready'
-    ? dashboard.privateDrafts.items.filter((draft) => !sharedAuthorDraftIds.has(draft.id))
+    ? dashboard.privateDrafts.items.filter((draft) => (
+        draft.contextType !== 'edit' && !sharedAuthorDraftIds.has(draft.id)
+      ))
     : []
   const renderPrivateDraftRows = (items: typeof privateDrafts) => (
     <div className="divide-y divide-border border-y border-border">
@@ -262,10 +264,7 @@ export async function ExpenseDashboard({
       ) : null}
 
       {allItems.length > 0 ? (
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold">{t('dashboard.confirmed')}</h2>
-          <ExpenseDashboardDirectory items={allItems} locale={locale} />
-        </div>
+        <ExpenseDashboardDirectory items={allItems} locale={locale} />
       ) : null}
       {allItems.length === 0
         && dashboard.invitations.length === 0

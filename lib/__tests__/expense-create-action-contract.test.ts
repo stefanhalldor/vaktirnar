@@ -655,6 +655,73 @@ describe('createExpense RPC contract', () => {
     expect(JSON.stringify(secondInput.p_payload)).not.toContain('anna@example.com')
   })
 
+  it('adopts the server-canonical edit draft identity and retries the payload with CAS', async () => {
+    const proposedDraftId = '53000000-0000-4000-8000-000000000010'
+    const canonicalDraftId = '53000000-0000-4000-8000-000000000011'
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        draft_id: canonicalDraftId,
+        draft_version: 4,
+        saved_at: '2026-08-28T08:00:00.000Z',
+      },
+      error: null,
+    }).mockResolvedValueOnce({
+      data: {
+        draft_id: canonicalDraftId,
+        draft_version: 5,
+        saved_at: '2026-08-28T08:00:01.000Z',
+      },
+      error: null,
+    })
+
+    const result = await saveExpenseDraft({
+      draft_id: proposedDraftId,
+      expected_version: null,
+      context_type: 'edit',
+      group_id: persistedGroupId,
+      expense_id: persistedExpenseId,
+      current_step: 'split',
+      payload: {
+        circleId: null,
+        eventId: null,
+        eventRosterRevision: null,
+        linkToEvent: false,
+        eventVisibility: 'participants_only',
+        members: [{ key: 'self', label: 'Stebbi', input: { type: 'self', key: 'self' }, isSelf: true }],
+        removedMemberIds: [],
+        included: { self: true },
+        title: 'Kvöldmatur',
+        total: '100',
+        currency: 'ISK',
+        incurredOn: '2026-08-28',
+        category: '',
+        note: '',
+        splitMethod: 'percentage',
+        payments: { self: '100' },
+        payerKeys: ['self'],
+        amounts: { self: '100' },
+        percentages: { self: '100' },
+        weights: { self: '1' },
+        preserveShares: true,
+      },
+    })
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: true,
+      data: expect.objectContaining({ draftId: canonicalDraftId, version: 5 }),
+    }))
+    expect(mockRpc).toHaveBeenCalledTimes(2)
+    expect(mockRpc.mock.calls[0]?.[1]).toMatchObject({
+      p_draft_id: proposedDraftId,
+      p_expected_version: null,
+    })
+    expect(mockRpc.mock.calls[1]?.[1]).toMatchObject({
+      p_draft_id: canonicalDraftId,
+      p_expected_version: 4,
+    })
+    expect(mockRpc.mock.calls[1]?.[1].p_payload).toEqual(mockRpc.mock.calls[0]?.[1].p_payload)
+  })
+
   it('delivers only invitation IDs returned by the atomic tagged wrapper', async () => {
     const requestId = '50000000-0000-4000-8000-000000000006'
     const invitationId = '55000000-0000-4000-8000-000000000001'
