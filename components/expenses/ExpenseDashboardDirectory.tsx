@@ -1,26 +1,23 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ChevronRight } from 'lucide-react'
+import { AlertTriangle, ChevronRight, CircleDollarSign, FilePenLine, UsersRound } from 'lucide-react'
 import type {
-  ExpenseConfirmedPresentationView,
-  ExpenseGroupSummaryView,
-} from '@/lib/expenses/contracts'
+  ExpenseDashboardCircleFacetView,
+  ExpenseDashboardPersonFacetView,
+  ExpenseDashboardPresentationResult,
+  ExpenseDashboardPresentationState,
+  ExpenseDashboardPresentationView,
+} from '@/lib/expenses/dashboard-presentations'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { useExpenseTranslations } from './i18n.client'
 
-type LifecycleView = 'active' | 'settled' | 'cancelled'
-type DashboardView = 'all' | LifecycleView
+type DashboardView = 'active' | 'closed'
 
-function classifyLifecycle(group: ExpenseGroupSummaryView): LifecycleView | null {
-  if (group.expenseCount === 0) return null
-  if (group.cancelled) return 'cancelled'
-  if (
-    group.pendingConfirmationCount > 0
-    || group.selfBalances.some((balance) => balance.amountMinor !== 0)
-  ) return 'active'
-  return 'settled'
+const SECTION_STATES: Record<DashboardView, ExpenseDashboardPresentationState[]> = {
+  active: ['private_draft', 'shared_draft', 'confirmed'],
+  closed: ['settled', 'cancelled'],
 }
 
 function toggleValue(values: string[], value: string) {
@@ -29,258 +26,213 @@ function toggleValue(values: string[], value: string) {
     : [...values, value]
 }
 
-function intersectValues(values: string[], validValues: Set<string>) {
-  return values.filter((value) => validValues.has(value))
+function orderedFacets<T extends { key: string; label: string }>(facets: T[], locale: string) {
+  return [...facets].sort((left, right) =>
+    left.label.localeCompare(right.label, locale, { sensitivity: 'base' })
+    || left.key.localeCompare(right.key))
 }
 
-function arraysEqual(left: string[], right: string[]) {
-  return left.length === right.length && left.every((value, index) => value === right[index])
+function iconFor(state: ExpenseDashboardPresentationState) {
+  if (state === 'private_draft') return FilePenLine
+  if (state === 'shared_draft') return UsersRound
+  return CircleDollarSign
 }
 
-function getValidAuxiliaryValues(items: ExpenseGroupSummaryView[]) {
-  const counterpartyKeys = new Set<string>()
-  const circleIds = new Set<string>()
-  for (const item of items) {
-    for (const counterparty of item.counterparties ?? []) counterpartyKeys.add(counterparty.key)
-    for (const circle of item.relationshipCircles ?? []) circleIds.add(circle.id)
-  }
-  return { counterpartyKeys, circleIds }
-}
+function DashboardRow({
+  row,
+  locale,
+}: {
+  row: ExpenseDashboardPresentationView
+  locale: string
+}) {
+  const t = useExpenseTranslations()
+  const Icon = row.needsAttention ? AlertTriangle : iconFor(row.presentationState)
+  const amount = row.totalMinor !== null && row.currency
+    ? formatExpenseMinor(row.totalMinor, row.currency, locale)
+    : null
+  const content = (
+    <>
+      <span
+        aria-hidden
+        className={`flex size-10 shrink-0 items-center justify-center rounded-full ${row.needsAttention ? 'bg-amber-50 text-amber-700' : 'bg-[#eef7ea] text-primary'}`}
+      >
+        <Icon size={19} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">
+          {row.title ?? t('dashboard.untitledDraft')}
+        </span>
+        <span className="mt-0.5 block text-xs text-muted-foreground">
+          {[
+            amount,
+            row.needsAttention
+              ? t('dashboard.needsAttention')
+              : t(`dashboard.sections.${row.presentationState}`),
+          ].filter(Boolean).join(' · ')}
+        </span>
+      </span>
+      {row.href ? <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" /> : null}
+    </>
+  )
 
-function presentationFor(
-  presentation: ExpenseConfirmedPresentationView,
-  t: ReturnType<typeof useExpenseTranslations>,
-): { href: string; editLabel: string | null } {
-  const confirmedHref = `/auth-mvp/utlagt-og-endurgreitt/utgjold/${presentation.expenseId}`
-  switch (presentation.presentationState.status) {
-    case 'confirmed':
-      return { href: confirmedHref, editLabel: null }
-    case 'editing':
-      return {
-        href: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${presentation.presentationState.expenseId}/breyta?step=split&draft=${presentation.presentationState.draftId}`,
-        editLabel: t('dashboard.editInProgress'),
-      }
-    case 'ambiguous':
-      return {
-        href: confirmedHref,
-        editLabel: t('dashboard.editAmbiguous'),
-      }
-    case 'unavailable':
-      return { href: confirmedHref, editLabel: t('dashboard.editLookupUnavailable') }
-  }
+  return row.href ? (
+    <Link
+      href={row.href}
+      className="flex min-h-14 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    >
+      {content}
+    </Link>
+  ) : (
+    <div className="flex min-h-14 items-center gap-3 py-3">{content}</div>
+  )
 }
 
 export function ExpenseDashboardDirectory({
-  items,
+  result,
   locale,
 }: {
-  items: ExpenseGroupSummaryView[]
+  result: ExpenseDashboardPresentationResult
   locale: string
 }) {
   const t = useExpenseTranslations()
   const [view, setView] = useState<DashboardView>('active')
-  const [counterpartyKeys, setCounterpartyKeys] = useState<string[]>([])
-  const [circleIds, setCircleIds] = useState<string[]>([])
+  const [personKeys, setPersonKeys] = useState<string[]>([])
+  const [circleKeys, setCircleKeys] = useState<string[]>([])
 
-  const confirmedItems = useMemo(
-    () => items.filter((item) => classifyLifecycle(item) !== null),
-    [items],
-  )
-
-  const lifecycleBaseItems = useMemo(
-    () => view === 'all'
-      ? confirmedItems
-      : confirmedItems.filter((item) => classifyLifecycle(item) === view),
-    [confirmedItems, view],
-  )
-
-  const counterparties = useMemo(() => {
-    const labels = new Map<string, string>()
-    for (const item of lifecycleBaseItems) {
-      for (const counterparty of item.counterparties ?? []) {
-        labels.set(counterparty.key, counterparty.label)
-      }
+  const rows = result.status === 'ready' ? result.rows : []
+  const personOptions = useMemo(() => {
+    const options = new Map<string, ExpenseDashboardPersonFacetView>()
+    for (const row of rows) {
+      for (const facet of row.personFacets) options.set(facet.key, facet)
     }
-    return [...labels].map(([key, label]) => ({ key, label }))
-      .sort((left, right) => left.label.localeCompare(right.label, 'is'))
-  }, [lifecycleBaseItems])
-
-  const circles = useMemo(() => {
-    const labels = new Map<string, string>()
-    for (const item of lifecycleBaseItems) {
-      for (const circle of item.relationshipCircles ?? []) labels.set(circle.id, circle.name)
+    return orderedFacets([...options.values()], locale)
+  }, [locale, rows])
+  const durablePeople = personOptions.filter((facet) => facet.kind === 'durable')
+  const manualPeople = personOptions.filter((facet) => facet.kind === 'manual')
+  const circleOptions = useMemo(() => {
+    const options = new Map<string, ExpenseDashboardCircleFacetView>()
+    for (const row of rows) {
+      for (const facet of row.circleFacets) options.set(facet.key, facet)
     }
-    return [...labels].map(([id, name]) => ({ id, name }))
-      .sort((left, right) => left.name.localeCompare(right.name, 'is'))
-  }, [lifecycleBaseItems])
+    return orderedFacets([...options.values()], locale)
+  }, [locale, rows])
 
-  const validCounterpartyKeys = useMemo(
-    () => new Set(counterparties.map((person) => person.key)),
-    [counterparties],
-  )
-  const validCircleIds = useMemo(
-    () => new Set(circles.map((circle) => circle.id)),
-    [circles],
-  )
-  const effectiveCounterpartyKeys = intersectValues(counterpartyKeys, validCounterpartyKeys)
-  const effectiveCircleIds = intersectValues(circleIds, validCircleIds)
-
-  useEffect(() => {
-    setCounterpartyKeys((current) => {
-      const next = intersectValues(current, validCounterpartyKeys)
-      return arraysEqual(current, next) ? current : next
-    })
-    setCircleIds((current) => {
-      const next = intersectValues(current, validCircleIds)
-      return arraysEqual(current, next) ? current : next
-    })
-  }, [validCircleIds, validCounterpartyKeys])
-
-  const visibleItems = lifecycleBaseItems.filter((item) => {
-    const itemCounterparties = new Set((item.counterparties ?? []).map((person) => person.key))
-    const itemCircles = new Set((item.relationshipCircles ?? []).map((circle) => circle.id))
-    if (effectiveCounterpartyKeys.some((key) => !itemCounterparties.has(key))) return false
-    if (effectiveCircleIds.length > 0 && !effectiveCircleIds.some((id) => itemCircles.has(id))) return false
+  const filteredRows = rows.filter((row) => {
+    const rowPeople = new Set(row.personFacets.map((facet) => facet.key))
+    const rowCircles = new Set(row.circleFacets.map((facet) => facet.key))
+    if (personKeys.some((key) => !rowPeople.has(key))) return false
+    if (circleKeys.length > 0 && !circleKeys.some((key) => rowCircles.has(key))) return false
     return true
   })
+  const hasFilters = personKeys.length > 0 || circleKeys.length > 0
+  const viewRows = filteredRows.filter((row) => SECTION_STATES[view].includes(row.presentationState))
 
-  const hasAuxiliaryFilters = effectiveCounterpartyKeys.length > 0 || effectiveCircleIds.length > 0
-
-  function selectView(nextView: DashboardView) {
-    const nextBaseItems = nextView === 'all'
-      ? confirmedItems
-      : confirmedItems.filter((item) => classifyLifecycle(item) === nextView)
-    const validValues = getValidAuxiliaryValues(nextBaseItems)
-    setCounterpartyKeys((current) => intersectValues(current, validValues.counterpartyKeys))
-    setCircleIds((current) => intersectValues(current, validValues.circleIds))
-    setView(nextView)
+  function facetButton(facet: { key: string; label: string }, kind: 'person' | 'circle') {
+    const selected = kind === 'person'
+      ? personKeys.includes(facet.key)
+      : circleKeys.includes(facet.key)
+    return (
+      <button
+        key={facet.key}
+        type="button"
+        aria-pressed={selected}
+        className={`min-h-10 rounded-full border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'}`}
+        onClick={() => kind === 'person'
+          ? setPersonKeys((current) => toggleValue(current, facet.key))
+          : setCircleKeys((current) => toggleValue(current, facet.key))}
+      >
+        {facet.label}
+      </button>
+    )
   }
 
   return (
     <section aria-labelledby="expense-directory-title" className="space-y-4">
       <h2 id="expense-directory-title" className="text-sm font-semibold">{t('dashboard.entries')}</h2>
+
       <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('dashboard.viewAriaLabel')}>
-        {(['all', 'active', 'settled', 'cancelled'] as const).map((candidate) => (
+        {(['active', 'closed'] as const).map((candidate) => (
           <button
             key={candidate}
             type="button"
             aria-pressed={view === candidate}
-            className={`min-h-11 rounded-xl border px-2 py-2 text-sm font-medium leading-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${view === candidate ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'}`}
-            onClick={() => selectView(candidate)}
+            className={`min-h-11 rounded-xl border px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${view === candidate ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'}`}
+            onClick={() => setView(candidate)}
           >
             {t(`dashboard.views.${candidate}`)}
           </button>
         ))}
       </div>
 
-      {counterparties.length > 0 || circles.length > 0 ? (
-        <div className="space-y-3 rounded-xl bg-muted/60 p-3">
-          {counterparties.length > 0 ? (
-            <fieldset className="space-y-2">
-              <legend className="text-xs font-semibold">{t('dashboard.filterPeople')}</legend>
-              <div className="flex flex-wrap gap-2">
-                {counterparties.map((person) => {
-                  const selected = effectiveCounterpartyKeys.includes(person.key)
-                  return <button key={person.key} type="button" aria-pressed={selected} className={`min-h-10 rounded-full border px-3 text-sm ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'}`} onClick={() => setCounterpartyKeys((current) => toggleValue(current, person.key))}>{person.label}</button>
-                })}
-              </div>
-            </fieldset>
-          ) : null}
-          {circles.length > 0 ? (
-            <fieldset className="space-y-2">
-              <legend className="text-xs font-semibold">{t('dashboard.filterCircles')}</legend>
-              <div className="flex flex-wrap gap-2">
-                {circles.map((circle) => {
-                  const selected = effectiveCircleIds.includes(circle.id)
-                  return <button key={circle.id} type="button" aria-pressed={selected} className={`min-h-10 rounded-full border px-3 text-sm ${selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'}`} onClick={() => setCircleIds((current) => toggleValue(current, circle.id))}>{circle.name}</button>
-                })}
-              </div>
-            </fieldset>
-          ) : null}
-          {hasAuxiliaryFilters ? (
-            <button type="button" className="min-h-10 text-sm font-medium text-primary underline-offset-4 hover:underline" onClick={() => { setCounterpartyKeys([]); setCircleIds([]) }}>{t('dashboard.clearFilters')}</button>
-          ) : null}
-        </div>
+      {personOptions.length > 0 || circleOptions.length > 0 ? (
+        <details className="rounded-xl border border-border bg-background px-3 py-2">
+          <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between text-sm font-semibold">
+            <span>{t('dashboard.filters')}</span>
+            {hasFilters ? <span className="text-xs font-medium text-primary">{t('dashboard.filtersActive')}</span> : null}
+          </summary>
+          <div className="space-y-4 border-t border-border pb-2 pt-3">
+            {durablePeople.length > 0 ? (
+              <fieldset className="space-y-2">
+                <legend className="text-xs font-semibold">{t('dashboard.filterPeople')}</legend>
+                <div className="flex flex-wrap gap-2">{durablePeople.map((facet) => facetButton(facet, 'person'))}</div>
+              </fieldset>
+            ) : null}
+
+            {manualPeople.length > 0 ? (
+              <details className="rounded-lg bg-muted/60 px-3 py-2">
+                <summary className="min-h-10 cursor-pointer list-none py-2 text-xs font-semibold">
+                  {t('dashboard.filterManualPeople', { count: manualPeople.length })}
+                </summary>
+                <div className="flex flex-wrap gap-2 pb-1">{manualPeople.map((facet) => facetButton(facet, 'person'))}</div>
+              </details>
+            ) : null}
+
+            {circleOptions.length > 0 ? (
+              <fieldset className="space-y-2">
+                <legend className="text-xs font-semibold">{t('dashboard.filterCircles')}</legend>
+                <div className="flex flex-wrap gap-2">{circleOptions.map((facet) => facetButton(facet, 'circle'))}</div>
+              </fieldset>
+            ) : null}
+
+            {hasFilters ? (
+              <button
+                type="button"
+                className="min-h-10 text-sm font-medium text-primary underline-offset-4 hover:underline"
+                onClick={() => { setPersonKeys([]); setCircleKeys([]) }}
+              >
+                {t('dashboard.clearFilters')}
+              </button>
+            ) : null}
+          </div>
+        </details>
       ) : null}
 
-      {visibleItems.length > 0 ? (
-        <div className="divide-y divide-border border-y border-border">
-          {visibleItems.map((group) => {
-            const balanceLabels = group.selfBalances
-              .filter((balance) => balance.amountMinor !== 0)
-              .map((balance) => t(
-                balance.amountMinor > 0 ? 'dashboard.groupOwedToYou' : 'dashboard.groupYouOwe',
-                { amount: formatExpenseMinor(Math.abs(balance.amountMinor), balance.currency, locale) },
-              ))
-            const financialStatusLabels = [
-              ...(group.cancelled
-                ? [t('dashboard.cancelled')]
-                : balanceLabels.length > 0
-                  ? balanceLabels
-                  : group.pendingConfirmationCount === 0
-                    ? [t('dashboard.settled')]
-                    : []),
-              ...(group.pendingConfirmationCount > 0
-                ? [t('dashboard.pendingCount', { count: group.pendingConfirmationCount })]
-                : []),
-            ]
-            const renderExpenseRow = (
-              expense: ExpenseConfirmedPresentationView,
-              includeFinancialState: boolean,
-            ) => {
-              const presentation = presentationFor(expense, t)
-              const statusLabels = [
-                ...(presentation.editLabel ? [presentation.editLabel] : []),
-                ...(expense.expenseStatus === 'cancelled'
-                  ? [t('dashboard.cancelled')]
-                  : includeFinancialState
-                    ? financialStatusLabels
-                    : presentation.editLabel
-                      ? []
-                      : [t('dashboard.confirmed')]),
-              ]
-              return <Link key={expense.expenseId} href={presentation.href} className="flex min-h-14 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-                <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#eef7ea] text-lg">{group.emoji || '🧾'}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold">{expense.title}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {statusLabels.join(' · ')}
-                  </span>
-                  {(group.relationshipCircles ?? []).length > 0 ? <span className="mt-1 block truncate text-xs text-muted-foreground">{group.relationshipCircles!.map((circle) => circle.name).join(' · ')}</span> : null}
-                </span>
-                <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" />
-              </Link>
-            }
-            if (group.expensePresentations.length === 1) {
-              return renderExpenseRow(group.expensePresentations[0]!, true)
-            }
-            return (
-              <div key={group.id}>
-                <Link
-                  href={`/auth-mvp/utlagt-og-endurgreitt/hopar/${group.id}`}
-                  className="flex min-h-14 items-center gap-3 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-lg">{group.emoji || '🧾'}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">{group.name}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">{financialStatusLabels.join(' · ')}</span>
-                  </span>
-                  <ChevronRight aria-hidden size={18} className="shrink-0 text-muted-foreground" />
-                </Link>
-                <div className="divide-y divide-border border-t border-border pl-4">
-                  {group.expensePresentations.map((expense) => renderExpenseRow(expense, false))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ) : (
-        <p className="border-y border-border py-6 text-center text-sm text-muted-foreground">
-          {t(lifecycleBaseItems.length === 0
-            ? `dashboard.no${view[0]!.toUpperCase()}${view.slice(1)}`
-            : 'dashboard.noFilterResults')}
+      {result.status === 'unavailable' ? (
+        <p className="rounded-xl bg-muted px-3 py-4 text-sm text-muted-foreground">{t('dashboard.entriesUnavailable')}</p>
+      ) : null}
+
+      {result.status !== 'unavailable' && viewRows.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {hasFilters
+            ? t('dashboard.noFilterMatches')
+            : t(view === 'active' ? 'dashboard.noActive' : 'dashboard.noClosed')}
         </p>
-      )}
+      ) : null}
+
+      {SECTION_STATES[view].map((state) => {
+        const sectionRows = viewRows.filter((row) => row.presentationState === state)
+        if (sectionRows.length === 0) return null
+        return (
+          <section key={state} aria-labelledby={`expense-section-${state}`}>
+            <h3 id={`expense-section-${state}`} className="pb-2 text-sm font-semibold">
+              {t(`dashboard.sections.${state}`)}
+            </h3>
+            <div className="divide-y divide-border border-y border-border">
+              {sectionRows.map((row) => <DashboardRow key={row.presentationKey} row={row} locale={locale} />)}
+            </div>
+          </section>
+        )
+      })}
     </section>
   )
 }

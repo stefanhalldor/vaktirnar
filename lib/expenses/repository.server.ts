@@ -2,13 +2,13 @@ import 'server-only'
 import { getAdmin } from '@/lib/supabase/admin'
 import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getExpensePayAllEventLabels } from '@/lib/events/repository.server'
-import { deriveExpenseConfirmedPresentations } from './dashboard-presentation'
+import {
+  classifyExpenseDashboardPresentationResponse,
+} from './dashboard-presentations'
 import {
   aggregateLedgerBalances,
-  applySettlementTransfers,
   reportedRepaymentsNeedingReview,
   settlementTransferReviewKey,
-  simplifySettlement,
 } from './balances'
 import { addMinorAmounts } from './money'
 import {
@@ -45,7 +45,6 @@ import type {
   ExpenseActivityView,
   ExpenseBalanceView,
   ExpenseDashboardView,
-  ExpenseDashboardSharedDraftSummaryView,
   ExpenseGroupView,
   ExpenseGroupSummaryView,
   ExpenseIdentityProofKind,
@@ -53,7 +52,6 @@ import type {
   ExpenseRelationshipIdentityManagementView,
   ExpenseRelationshipIdentityManagementState,
   ExpenseInvitationView,
-  ExpenseIncompleteDraftSummaryView,
   ExpenseItemView,
   ExpenseMemberInvitationView,
   ExpenseMemberInvitationPreviewView,
@@ -73,7 +71,6 @@ import type {
 import type { ExpenseActivityEventType } from './events'
 import {
   ExpenseDraftPayloadSchema,
-  getExpenseDraftAttention,
   redactExpenseDraftEventGuestLabels,
   type ExpensePrivateDraftView,
 } from './drafts'
@@ -387,11 +384,12 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   guestMemberRenameReady: boolean
   settlementBatchRepaymentLinks: SettlementBatchRepaymentLinkRow[]
   settlementBatchReady: boolean
+  eligibleSettlementContext: EligibleSettlementContext
   claimContext: ExpenseClaimContext
   creatorNames: Map<string, string>
 }> {
   const admin = getAdmin()
-  const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult, claimContextResult] = await Promise.all([
+  const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult, claimContextResult, eligibleSettlementResult] = await Promise.all([
     admin.from('expense_groups').select(GROUP_SELECT).eq('id', groupId).maybeSingle(),
     admin.from('expense_group_members').select(MEMBER_SELECT).eq('group_id', groupId).order('created_at', { ascending: true }),
     admin.from('expenses').select(EXPENSE_SELECT).eq('group_id', groupId).order('incurred_on', { ascending: false }).order('created_at', { ascending: false }),
@@ -399,6 +397,10 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
     admin.from('expense_activity').select('id, sequence_no, event_type, entity_type, entity_id, summary_code, actor_display_name, expense_title, group_title, created_at').eq('group_id', groupId).order('sequence_no', { ascending: false }).limit(50),
     admin.from('expense_member_invitations').select('id, group_id, member_id, status, attempt_status, recipient_email_canonical').eq('group_id', groupId).eq('status', 'pending').gt('expires_at', new Date().toISOString()),
     admin.rpc('expense_get_claim_context', {
+      p_actor_id: actorUserId,
+      p_group_id: groupId,
+    }),
+    admin.rpc('expense_get_eligible_settlement_context_v1', {
       p_actor_id: actorUserId,
       p_group_id: groupId,
     }),
@@ -513,10 +515,65 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
       ? []
       : (settlementBatchItemsResult.data ?? []) as SettlementBatchRepaymentLinkRow[],
     settlementBatchReady: !settlementBatchItemsResult.error,
+    eligibleSettlementContext: eligibleSettlementResult.error
+      ? { ready: false, financialVersion: null, requiresReview: true, transfers: [] }
+      : parseEligibleSettlementContext(eligibleSettlementResult.data),
     claimContext: claimContextResult.data === null
       ? { requiresReview: false, disputes: [], bindings: [] }
       : parseClaimContext(claimContextResult.data),
     creatorNames,
+  }
+}
+
+type EligibleSettlementContext = {
+  ready: boolean
+  financialVersion: number | null
+  requiresReview: boolean
+  transfers: Array<{
+    fromMemberId: string
+    toMemberId: string
+    amountMinor: number
+    currency: string
+  }>
+}
+
+function parseEligibleSettlementContext(value: unknown): EligibleSettlementContext {
+  const source = record(value)
+  if (!source || source.status !== 'ready'
+    || typeof source.requires_review !== 'boolean'
+    || !Number.isSafeInteger(Number(source.financial_version))
+    || Number(source.financial_version) < 0
+    || !Array.isArray(source.transfers)
+    || source.transfers.length > 500) {
+    return { ready: false, financialVersion: null, requiresReview: true, transfers: [] }
+  }
+  const transfers = source.transfers.map((item) => {
+    const row = record(item)
+    const amountMinor = row ? Number(row.amount_minor) : Number.NaN
+    if (!row
+      || typeof row.from_member_id !== 'string'
+      || typeof row.to_member_id !== 'string'
+      || !EXPENSE_UUID_PATTERN.test(row.from_member_id)
+      || !EXPENSE_UUID_PATTERN.test(row.to_member_id)
+      || !Number.isSafeInteger(amountMinor)
+      || amountMinor < 1
+      || typeof row.currency !== 'string'
+      || !/^[A-Z]{3}$/.test(row.currency)) return null
+    return {
+      fromMemberId: row.from_member_id,
+      toMemberId: row.to_member_id,
+      amountMinor,
+      currency: row.currency,
+    }
+  })
+  if (transfers.some((item) => item === null)) {
+    return { ready: false, financialVersion: null, requiresReview: true, transfers: [] }
+  }
+  return {
+    ready: true,
+    financialVersion: Number(source.financial_version),
+    requiresReview: source.requires_review,
+    transfers: transfers as EligibleSettlementContext['transfers'],
   }
 }
 
@@ -737,12 +794,12 @@ function buildGroupView(
       currency: repayment.currency,
     }))
   const reportedReviewKeys = reportedRepaymentsNeedingReview(domainBalances, reportedReservations)
-  const settlementRequiresReview = reportedReviewKeys.size > 0
+  const settlementRequiresReview = rows.eligibleSettlementContext.requiresReview
+    || reportedReviewKeys.size > 0
     || rows.claimContext.requiresReview
-  const availableBalances = applySettlementTransfers(domainBalances, reportedReservations)
-  const transfers = simplifySettlement(availableBalances).map((transfer) => {
-    const from = membersById.get(transfer.fromPartyId)
-    const to = membersById.get(transfer.toPartyId)
+  const transfers = rows.eligibleSettlementContext.transfers.map((transfer) => {
+    const from = membersById.get(transfer.fromMemberId)
+    const to = membersById.get(transfer.toMemberId)
     const viewerIsFrom = from ? viewerActsForMember(from.id) : false
     const managedDebtor = canManageExpenseMemberOnBehalf({
       canManage,
@@ -756,13 +813,14 @@ function buildGroupView(
       memberUserId: to?.user_id,
     })
     return {
-      fromMemberId: transfer.fromPartyId,
-      fromDisplayName: memberName(transfer.fromPartyId),
-      toMemberId: transfer.toPartyId,
-      toDisplayName: memberName(transfer.toPartyId),
+      fromMemberId: transfer.fromMemberId,
+      fromDisplayName: memberName(transfer.fromMemberId),
+      toMemberId: transfer.toMemberId,
+      toDisplayName: memberName(transfer.toMemberId),
       amountMinor: transfer.amountMinor,
       currency: transfer.currency,
-      expectedFinancialVersion: rows.group.financial_version,
+      expectedFinancialVersion: rows.eligibleSettlementContext.financialVersion
+        ?? rows.group.financial_version,
       canReport: !settlementRequiresReview
         && (viewerIsFrom || managedDebtor),
       canRecordReceived: !settlementRequiresReview
@@ -925,6 +983,7 @@ function buildGroupView(
     balances,
     settlementTransfers: transfers,
     settlementRequiresReview,
+    settlementEligibilityReady: rows.eligibleSettlementContext.ready,
     claimReviewRequired: rows.claimContext.requiresReview,
     shareCollaborationReady: rows.shareCollaborationReady,
     guestMemberRenameReady: rows.guestMemberRenameReady,
@@ -1436,81 +1495,6 @@ export async function getExpensePayAllView(actorUserId: string): Promise<Expense
   }
 }
 
-type ExpensePrivateDraftSource = ExpenseDashboardView['privateDrafts']
-
-function parseExpensePrivateDraftSource(
-  data: unknown,
-  error: unknown,
-): ExpensePrivateDraftSource {
-  if (error || data !== null && !Array.isArray(data)) {
-    return { status: 'unavailable', items: [] }
-  }
-  const rows = (data ?? []) as unknown[]
-  if (rows.length > 100) return { status: 'unavailable', items: [] }
-  const items: ExpenseIncompleteDraftSummaryView[] = []
-  for (const source of rows) {
-    const row = record(source)
-    const payload = ExpenseDraftPayloadSchema.safeParse(row?.payload)
-    const draftId = boundedString(row?.draft_id, 36)
-    const contextType = row?.context_type
-    const exactContextType = contextType === 'one_off'
-      || contextType === 'group'
-      || contextType === 'edit'
-      ? contextType
-      : null
-    const groupId = row?.group_id === null ? null : boundedString(row?.group_id, 36)
-    const expenseId = row?.expense_id === null ? null : boundedString(row?.expense_id, 36)
-    const version = Number(row?.draft_version)
-    const savedAt = boundedString(row?.saved_at, 40)
-    const currentStep = row?.current_step
-    const contextExact = exactContextType === 'one_off'
-      ? groupId === null && expenseId === null
-      : exactContextType === 'group'
-        ? Boolean(groupId && EXPENSE_UUID_PATTERN.test(groupId)) && expenseId === null
-        : exactContextType === 'edit'
-          ? Boolean(
-              groupId && EXPENSE_UUID_PATTERN.test(groupId)
-              && expenseId && EXPENSE_UUID_PATTERN.test(expenseId),
-            )
-          : false
-    if (
-      !row
-      || !payload.success
-      || !draftId
-      || !EXPENSE_UUID_PATTERN.test(draftId)
-      || !exactContextType
-      || !contextExact
-      || !Number.isSafeInteger(version)
-      || version < 1
-      || !savedAt
-      || Number.isNaN(Date.parse(savedAt))
-      || !['details', 'split', 'people', 'review'].includes(String(currentStep))
-    ) {
-      return { status: 'unavailable', items: [] }
-    }
-    let totalMinor: number | null = null
-    try {
-      totalMinor = parseExpenseAmountToMinor(payload.data.total, payload.data.currency)
-    } catch {
-      // Blank and partial monetary input is valid private work, not ledger data.
-    }
-    const attention = getExpenseDraftAttention(payload.data)
-    items.push({
-      id: draftId,
-      contextType: exactContextType,
-      groupId,
-      expenseId,
-      title: payload.data.title.trim(),
-      totalMinor,
-      currency: payload.data.currency,
-      differenceMinor: attention?.differenceMinor ?? null,
-      needsAttention: totalMinor === null || Boolean(attention),
-      savedAt,
-    })
-  }
-  return { status: 'ready', items }
-}
-
 export async function getVisibleSharedExpenseDrafts(
   actorUserId: string,
 ): Promise<ExpenseSharedDraftListView> {
@@ -1552,8 +1536,19 @@ export async function getExpenseSharedDraftDetail(
   })
   if (error) return { status: 'unavailable' }
   const detail = parseExpenseSharedDraftDetail(data)
-  if (detail.status !== 'ready') return detail
-  return detail.publicationId === publicationId ? detail : { status: 'unavailable' }
+  if (detail.status === 'ready') {
+    return detail.publicationId === publicationId ? detail : { status: 'unavailable' }
+  }
+  const editResult = await getAdmin().rpc('expense_get_shared_edit_revision_v1', {
+    p_actor_id: actorUserId,
+    p_publication_id: publicationId,
+  })
+  if (editResult.error) return detail
+  const editDetail = parseExpenseSharedDraftDetail(editResult.data)
+  if (editDetail.status !== 'ready') return detail
+  return editDetail.publicationId === publicationId
+    ? editDetail
+    : { status: 'unavailable' }
 }
 
 export async function getExpenseDraftPublicationLifecycle(
@@ -1562,6 +1557,42 @@ export async function getExpenseDraftPublicationLifecycle(
 ): Promise<ExpenseDraftPublicationLifecycleView> {
   if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(draftId)) {
     return { status: 'unavailable' }
+  }
+  const draft = await getExpensePrivateDraft(actorUserId, draftId).catch(() => null)
+  if (draft?.contextType === 'edit') {
+    const { data, error } = await getAdmin().rpc(
+      'expense_get_edit_revision_publication_lifecycle_v1',
+      { p_actor_id: actorUserId, p_draft_id: draftId },
+    )
+    if (error) return { status: 'unavailable' }
+    const source = record(data)
+    const version = Number(source?.draft_version)
+    const publicationVersion = source?.expected_publication_version === null
+      ? null
+      : Number(source?.expected_publication_version)
+    if (!source || source.status !== 'ready' || source.draft_id !== draftId
+      || !Number.isSafeInteger(version) || version < 1
+      || !['never_shared', 'shared', 'withdrawn'].includes(String(source.sharing_state))
+      || (source.sharing_state === 'never_shared' && publicationVersion !== null)
+      || (source.sharing_state !== 'never_shared'
+        && (!Number.isSafeInteger(publicationVersion) || publicationVersion! < 1))) {
+      return { status: 'unavailable' }
+    }
+    if (source.sharing_state === 'never_shared') {
+      return {
+        status: 'ready', draftId, draftVersion: version,
+        sharingState: 'never_shared', expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      }
+    }
+    return {
+      status: 'ready', draftId, draftVersion: version,
+      sharingState: source.sharing_state as 'shared' | 'withdrawn',
+      expectedPublicationVersion: publicationVersion!,
+      hasUnsharedChanges: source.sharing_state === 'shared'
+        ? source.has_unshared_changes !== false
+        : false,
+    }
   }
   const { data, error } = await getAdmin().rpc(
     'expense_get_private_draft_publication_lifecycle',
@@ -1640,9 +1671,8 @@ export async function getExpenseDashboard(
   const [
     { data, error },
     memberInvitationResult,
-    draftResult,
     pendingBatchState,
-    sharedDraftResult,
+    dashboardPresentationResult,
   ] = await Promise.all([
     admin
     .from('expense_group_members')
@@ -1650,9 +1680,8 @@ export async function getExpenseDashboard(
     .eq('user_id', actorUserId)
     .in('status', ['active', 'invited']),
     admin.rpc('expense_get_my_member_invitations', { p_actor_id: actorUserId }),
-    admin.rpc('expense_list_my_private_drafts', { p_actor_id: actorUserId }),
     loadPendingExpenseSettlementBatches(actorUserId),
-    admin.rpc('expense_list_visible_shared_drafts', { p_actor_id: actorUserId }),
+    admin.rpc('expense_list_dashboard_presentations_v1', { p_actor_id: actorUserId }),
   ])
   throwOnError(error, 'dashboard membership query')
   throwOnError(memberInvitationResult.error, 'member invitation inbox query')
@@ -1671,64 +1700,11 @@ export async function getExpenseDashboard(
     expiresAt: invitation.expires_at,
     invitedAt: invitation.invited_at,
   }))
-  let privateDrafts = parseExpensePrivateDraftSource(draftResult.data, draftResult.error)
-  const visibleSharedDrafts = sharedDraftResult.error
-    ? { status: 'unavailable' as const, items: [] }
-    : parseVisibleSharedExpenseDrafts(sharedDraftResult.data)
-  const privateById = new Map(
-    privateDrafts.status === 'ready'
-      ? privateDrafts.items.map((draft) => [draft.id, draft])
-      : [],
+  const dashboardPresentationClassification = classifyExpenseDashboardPresentationResponse(
+    dashboardPresentationResult.data,
+    dashboardPresentationResult.error,
   )
-  let sharedDrafts: ExpenseDashboardView['sharedDrafts'] = {
-    status: 'unavailable',
-    items: [],
-  }
-  if (visibleSharedDrafts.status === 'ready') {
-    const enriched: ExpenseDashboardSharedDraftSummaryView[] = []
-    let enrichmentFailed = false
-    for (const shared of visibleSharedDrafts.items) {
-      if (shared.viewerRole === 'author') {
-        if (shared.detailTarget.kind !== 'private_draft') {
-          enrichmentFailed = true
-          break
-        }
-        const draft = privateById.get(shared.detailTarget.draftId)
-        if (!draft || draft.contextType === 'edit') {
-          enrichmentFailed = true
-          break
-        }
-        enriched.push({
-          ...shared,
-          authorDraft: {
-            contextType: draft.contextType,
-            groupId: draft.groupId,
-            expenseId: null,
-          },
-        })
-      } else {
-        enriched.push({ ...shared, authorDraft: null })
-      }
-    }
-    sharedDrafts = enrichmentFailed
-      ? { status: 'unavailable', items: [] }
-      : { status: 'ready', items: enriched }
-  }
-  if (sharedDrafts.status === 'unavailable') {
-    // Without the shared source we cannot safely classify author rows as
-    // private versus live shared. Keep both proposal sections fail-closed.
-    privateDrafts = { status: 'unavailable', items: [] }
-  } else if (privateDrafts.status === 'ready') {
-    const liveAuthorDraftIds = new Set(sharedDrafts.items.flatMap((shared) => (
-      shared.viewerRole === 'author' && shared.detailTarget.kind === 'private_draft'
-        ? [shared.detailTarget.draftId]
-        : []
-    )))
-    privateDrafts = {
-      status: 'ready',
-      items: privateDrafts.items.filter((draft) => !liveAuthorDraftIds.has(draft.id)),
-    }
-  }
+  const dashboardPresentations = dashboardPresentationClassification.result
   const membershipRows = (data ?? []) as Array<{
     group_id: string
     status: 'active' | 'invited'
@@ -1739,28 +1715,6 @@ export async function getExpenseDashboard(
   const groupIds = [...new Set(activeMemberships.map((row) => row.group_id))]
   const loaded = await Promise.all(groupIds.map((groupId) => getExpenseGroupView(actorUserId, groupId)))
   const groups = loaded.filter((group): group is ExpenseGroupView => group !== null)
-  const circleContextsByGroup = new Map<string, Array<{ id: string; name: string }>>()
-  if (groupIds.length > 0) {
-    try {
-      const { data: contextRows, error: contextError } = await admin
-        .from('relationship_circle_expense_contexts')
-        .select('group_id, circle_id, circle_name_snapshot')
-        .in('group_id', groupIds)
-      if (!contextError) {
-        for (const row of (contextRows ?? []) as Array<{
-          group_id: string
-          circle_id: string
-          circle_name_snapshot: string
-        }>) {
-          const contexts = circleContextsByGroup.get(row.group_id) ?? []
-          contexts.push({ id: row.circle_id, name: row.circle_name_snapshot })
-          circleContextsByGroup.set(row.group_id, contexts)
-        }
-      }
-    } catch {
-      // SQL108 is independently gated. UL remains usable before its context table exists.
-    }
-  }
   let invitations: ExpenseInvitationView[] = []
   if (invitedMemberships.length > 0) {
     const invitationIds = invitedMemberships.map((row) => row.group_id)
@@ -1820,31 +1774,11 @@ export async function getExpenseDashboard(
       cancelled: group.expenses.length > 0
         && group.expenses.every((expense) => expense.status === 'cancelled'),
       createdAt: group.createdAt,
-      counterparties: group.members
-        .filter((member) => member.status === 'active' && !member.isSelf)
-        .map((member) => ({
-          key: member.displayName.trim().toLocaleLowerCase('is'),
-          label: member.displayName,
-        })),
-      relationshipCircles: circleContextsByGroup.get(group.id) ?? [],
-      expensePresentations: deriveExpenseConfirmedPresentations({
-        draftSourceStatus: privateDrafts.status,
-        groupId: group.id,
-        expenses: group.expenses.map((expense) => ({
-          id: expense.id,
-          title: expense.title,
-          status: expense.status,
-        })),
-        drafts: privateDrafts.items,
-      }),
+      counterparties: [],
+      relationshipCircles: [],
+      expensePresentations: [],
     }
   })
-  if (privateDrafts.status === 'ready') {
-    privateDrafts = {
-      status: 'ready',
-      items: privateDrafts.items.filter((draft) => draft.contextType !== 'edit'),
-    }
-  }
   return {
     groups: summaries.filter((group) => group.kind === 'group'),
     oneOffs: summaries.filter((group) => group.kind === 'one_off'),
@@ -1855,8 +1789,9 @@ export async function getExpenseDashboard(
       .sort((left, right) => left.currency.localeCompare(right.currency)),
     pendingConfirmationCount,
     hasPayAllItems,
-    privateDrafts,
-    sharedDrafts,
+    dashboardPresentations,
+    privateDrafts: { status: 'ready', items: [] },
+    sharedDrafts: { status: 'ready', items: [] },
   }
 }
 
@@ -1984,6 +1919,64 @@ export async function getExpenseInvitation(
   }
 }
 
+export async function getExpenseEditRevisionState(
+  actorUserId: string,
+  expenseId: string,
+): Promise<import('./contracts').ExpenseEditRevisionStateView> {
+  if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(expenseId)) {
+    return { status: 'unavailable' }
+  }
+  try {
+    const { data, error } = await getAdmin().rpc('expense_get_edit_revision_state_v1', {
+      p_actor_id: actorUserId,
+      p_expense_id: expenseId,
+    })
+    if (error) return { status: 'unavailable' }
+    const source = record(data)
+    if (!source || source.status === 'unavailable') return { status: 'unavailable' }
+    if (source.status === 'none') {
+      const openReasons = new Set(['clean', 'history', 'lifecycle', 'unavailable'])
+      if (typeof source.can_open !== 'boolean'
+        || typeof source.open_reason !== 'string'
+        || !openReasons.has(source.open_reason)
+        || source.can_open !== (source.open_reason === 'clean')) {
+        return { status: 'unavailable' }
+      }
+      return {
+        status: 'none',
+        canOpen: source.can_open,
+        openReason: source.open_reason as 'clean' | 'history' | 'lifecycle' | 'unavailable',
+      }
+    }
+    if (source.status !== 'open'
+      || (source.mode !== 'private' && source.mode !== 'shared')
+      || typeof source.owned_by_actor !== 'boolean') return { status: 'unavailable' }
+    const draftId = source.draft_id === null ? null : boundedString(source.draft_id, 36)
+    const draftVersion = source.draft_version === null ? null : Number(source.draft_version)
+    const publicationVersion = source.publication_version === null
+      ? null
+      : Number(source.publication_version)
+    if ((draftId !== null && !EXPENSE_UUID_PATTERN.test(draftId))
+      || (draftVersion !== null && (!Number.isSafeInteger(draftVersion) || draftVersion < 1))
+      || (publicationVersion !== null
+        && (!Number.isSafeInteger(publicationVersion) || publicationVersion < 1))
+      || (!source.owned_by_actor
+        && (draftId !== null || draftVersion !== null || publicationVersion !== null))) {
+      return { status: 'unavailable' }
+    }
+    return {
+      status: 'open',
+      mode: source.mode,
+      ownedByActor: source.owned_by_actor,
+      draftId,
+      draftVersion,
+      publicationVersion,
+    }
+  } catch {
+    return { status: 'unavailable' }
+  }
+}
+
 export async function getExpenseItemLookup(
   actorUserId: string,
   expenseId: string,
@@ -2007,6 +2000,7 @@ export async function getExpenseItemLookup(
   if (!group) return { status: 'forbidden' }
   const expense = group.expenses.find((item) => item.id === expenseId)
   if (!expense) return { status: 'forbidden' }
+  const editRevisionState = await getExpenseEditRevisionState(actorUserId, expenseId)
   const { data: revisionRows, error: revisionError } = await getAdmin()
     .from('expense_revisions')
     .select('id, activity_id, financial_version_before, financial_version_after, changed_fields, before_snapshot, after_snapshot, created_at')
@@ -2038,7 +2032,12 @@ export async function getExpenseItemLookup(
       summaryCode: activity?.summary_code ?? 'expense_updated',
     }
   })
-  return { status: 'ok', group, expense: { ...expense, revisions } }
+  return {
+    status: 'ok',
+    group: { ...group, editRevisionState: editRevisionState.status },
+    expense: { ...expense, revisions },
+    editRevisionState,
+  }
 }
 
 export async function getExpenseItemView(
@@ -2214,24 +2213,47 @@ export async function getCanonicalExpenseEditDraft(
   if (![actorUserId, groupId, expenseId].every((value) => EXPENSE_UUID_PATTERN.test(value))) {
     return { status: 'unavailable' }
   }
-  const { data, error } = await getAdmin().rpc('expense_list_my_private_drafts', {
-    p_actor_id: actorUserId,
-  })
-  const source = parseExpensePrivateDraftSource(data, error)
-  if (source.status !== 'ready') return { status: 'unavailable' }
-  const matches = source.items.filter((draft) => (
-    draft.contextType === 'edit'
-    && draft.groupId === groupId
-    && draft.expenseId === expenseId
-  ))
-  if (matches.length === 0) return { status: 'none' }
-  if (matches.length !== 1) return { status: 'ambiguous' }
-  const draft = await getExpensePrivateDraft(actorUserId, matches[0]!.id)
+  const state = await getExpenseEditRevisionState(actorUserId, expenseId)
+  if (state.status === 'unavailable') return { status: 'unavailable' }
+  if (state.status === 'none' || !state.ownedByActor || !state.draftId) {
+    return { status: 'none' }
+  }
+  const draft = await getExpensePrivateDraft(actorUserId, state.draftId)
   return draft?.contextType === 'edit'
     && draft.groupId === groupId
     && draft.expenseId === expenseId
     ? { status: 'single', draft }
     : { status: 'unavailable' }
+}
+
+export async function getLegacyExpenseEditDraftState(
+  actorUserId: string,
+  expenseId: string,
+): Promise<import('./contracts').ExpenseLegacyEditDraftStateView> {
+  if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(expenseId)) {
+    return { status: 'unavailable' }
+  }
+  try {
+    const { data, error } = await getAdmin().rpc('expense_get_legacy_edit_draft_state_v1', {
+      p_actor_id: actorUserId,
+      p_expense_id: expenseId,
+    })
+    if (error) return { status: 'unavailable' }
+    const source = record(data)
+    if (!source || source.status === 'unavailable') return { status: 'unavailable' }
+    if (source.status === 'none') return { status: 'none' }
+    if (source.status === 'legacy_ambiguous') return { status: 'legacy_ambiguous' }
+    const draftId = boundedString(source.draft_id, 36)
+    const draftVersion = Number(source.draft_version)
+    if (source.status !== 'legacy_unbound'
+      || draftId === null
+      || !EXPENSE_UUID_PATTERN.test(draftId)
+      || !Number.isSafeInteger(draftVersion)
+      || draftVersion < 1) return { status: 'unavailable' }
+    return { status: 'legacy_unbound', draftId, draftVersion }
+  } catch {
+    return { status: 'unavailable' }
+  }
 }
 
 export async function getExpenseRepaymentView(

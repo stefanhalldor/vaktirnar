@@ -3,11 +3,13 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   ExpenseDashboardView,
-  ExpenseConfirmedPresentationState,
-  ExpenseGroupSummaryView,
   ExpenseInvitationView,
   ExpensePaymentProfileV2View,
 } from '@/lib/expenses/contracts'
+import type {
+  ExpenseDashboardPersonFacetView,
+  ExpenseDashboardPresentationView,
+} from '@/lib/expenses/dashboard-presentations'
 
 const { mockPush, mockRefresh, mockRespondInvitation } = vi.hoisted(() => ({
   mockPush: vi.fn(),
@@ -16,11 +18,7 @@ const { mockPush, mockRefresh, mockRespondInvitation } = vi.hoisted(() => ({
 }))
 
 vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: {
+  default: ({ href, children, ...props }: {
     href: string
     children: React.ReactNode
     [key: string]: unknown
@@ -34,65 +32,39 @@ vi.mock('next/navigation', () => ({
 const translations: Record<string, string> = {
   'dashboard.intro': 'Haltu utan um hver lagði út.',
   'dashboard.addExpense': 'Skrá útgjald',
-  'dashboard.newGroup': 'Nýr hópur',
-  'dashboard.relationshipCircles': 'Tengslahringir',
   'dashboard.paymentMethods': 'Greiðsluleiðir',
   'dashboard.editPaymentMethods': 'Breyta',
   'dashboard.paymentProfile': 'Greiðsluleiðin þín',
   'dashboard.noPaymentProfile': 'Engin greiðsluleið hefur verið skráð.',
   'dashboard.entries': 'Færslur',
-  'dashboard.viewAriaLabel': 'Veldu hvaða UL-færslur sjást',
-  'dashboard.views.all': 'Allt',
-  'dashboard.views.active': 'Virkt',
-  'dashboard.views.settled': 'Uppgert',
-  'dashboard.views.cancelled': 'Fellt niður',
-  'dashboard.filterPeople': 'Mótaðilar',
+  'dashboard.viewAriaLabel': 'Veldu hvaða færslur sjást',
+  'dashboard.views.active': 'Í gangi',
+  'dashboard.views.closed': 'Lokið',
+  'dashboard.filters': 'Sía færslur',
+  'dashboard.filtersActive': 'Sía virk',
+  'dashboard.filterPeople': 'Fólk',
+  'dashboard.filterManualPeople': 'Án netfangs ({count})',
   'dashboard.filterCircles': 'Tengslahringir',
   'dashboard.clearFilters': 'Hreinsa síur',
-  'dashboard.noAll': 'Engar staðfestar færslur.',
   'dashboard.noActive': 'Engar virkar færslur.',
-  'dashboard.noSettled': 'Engar uppgerðar færslur.',
-  'dashboard.noCancelled': 'Engar niðurfelldar færslur.',
-  'dashboard.noFilterResults': 'Engar færslur passa við síurnar.',
-  'dashboard.privateDrafts': 'Drög fyrir mig',
-  'dashboard.privateDraftsHelper': 'Aðeins þú sérð þessi drög. Þau hafa ekki áhrif á stöður eða uppgjör.',
-  'dashboard.privateDraftsUnavailable': 'Ekki tókst að sækja drögin þín núna.',
-  'dashboard.sharedDrafts': 'Drög með öðrum',
-  'dashboard.sharedDraftsHelper': 'Þetta er enn í vinnslu og hefur ekki áhrif á stöðuna þína.',
-  'dashboard.sharedDraftsUnavailable': 'Ekki tókst að sækja sameiginleg drög núna.',
-  'dashboard.sharedDraftIncomplete': 'Skiptingin er enn í vinnslu.',
-  'dashboard.sharedDraftInProgress': 'Drögin bíða staðfestingar höfundar.',
-  'dashboard.unsharedChanges': 'Ódeildar breytingar',
-  'dashboard.confirmed': 'Staðfest',
-  'dashboard.draftContinue': 'Halda áfram',
-  'dashboard.editInProgress': 'Breytingar í vinnslu · Halda áfram að breyta',
-  'dashboard.editAmbiguous': 'Ekki er hægt að halda breytingum áfram fyrr en drög hafa verið yfirfarin',
-  'dashboard.editLookupUnavailable': 'Ekki tókst að sækja stöðu breytinga',
-  'dashboard.splitNeedsAttention': 'Skipting þarf lagfæringu',
+  'dashboard.noClosed': 'Engar lokaðar færslur.',
+  'dashboard.noFilterMatches': 'Engar færslur passa við síurnar.',
+  'dashboard.entriesUnavailable': 'Ekki tókst að sækja færslurnar núna.',
+  'dashboard.sections.private_draft': 'Drög fyrir mig',
+  'dashboard.sections.shared_draft': 'Drög með öðrum',
+  'dashboard.sections.confirmed': 'Staðfest',
+  'dashboard.sections.settled': 'Uppgert',
+  'dashboard.sections.cancelled': 'Fellt niður',
+  'dashboard.needsAttention': 'Þarfnast lagfæringar',
   'dashboard.untitledDraft': 'Ónefnd færsla',
-  'dashboard.unallocated': 'Óúthlutað {amount}',
-  'dashboard.overallocated': 'Of úthlutað {amount}',
   'dashboard.summary': 'Staðan þín',
   'dashboard.owedToYou': 'Þú átt inni',
   'dashboard.youOwe': 'Þú átt eftir að greiða',
   'dashboard.noBalances': 'Engin opin staða.',
   'dashboard.invitations': 'Boð sem bíða',
-  'dashboard.groups': 'Hópar',
-  'dashboard.oneOffs': 'Stök útgjöld',
-  'dashboard.empty': 'Engin útgjöld hafa verið skráð enn.',
-  'dashboard.expenseCount': '{count} útgjöld',
-  'dashboard.groupOwedToYou': 'Þú átt inni {amount}',
-  'dashboard.groupYouOwe': 'Þú átt eftir að greiða {amount}',
-  'dashboard.settled': 'Uppgert',
-  'dashboard.cancelled': 'Fellt niður',
   'dashboard.pendingCount': '{count} greiðsla bíður staðfestingar',
   'dashboard.settleAll': 'Gera allt upp',
-  'expenseForm.stepNavAriaLabel': 'Skref við skráningu útgjalds',
-  'expenseForm.steps.details': 'Útgjald',
-  'expenseForm.steps.people': 'Aðilar',
-  'expenseForm.steps.split': 'Skipting',
-  'expenseForm.steps.review': 'Yfirferð',
-  'expenseForm.stepUnavailable': 'Veldu eða stofnaðu útgjald fyrst',
+  'dashboard.guide': 'Leiðbeiningar',
   'invitation.body': 'Viltu taka þátt í {name}? Þú sérð ekki fjárhagsupplýsingar hópsins fyrr en þú samþykkir.',
   'invitation.accept': 'Samþykkja boð',
   'invitation.decline': 'Hafna boði',
@@ -110,15 +82,11 @@ function translate(rawKey: string, values?: Record<string, string | number>): st
   return value
 }
 
-vi.mock('next-intl', () => ({
-  useTranslations: () => translate,
-}))
-
+vi.mock('next-intl', () => ({ useTranslations: () => translate }))
 vi.mock('next-intl/server', () => ({
   getTranslations: vi.fn().mockResolvedValue(translate),
   getLocale: vi.fn().mockResolvedValue('is'),
 }))
-
 vi.mock('@/lib/expenses/actions', () => ({
   respondExpenseGroupInvitation: mockRespondInvitation,
 }))
@@ -126,42 +94,65 @@ vi.mock('@/lib/expenses/actions', () => ({
 import { ExpenseDashboard } from '@/components/expenses/ExpenseDashboard'
 import { ExpenseInvitationActions } from '@/components/expenses/ExpenseInvitationActions'
 
-function groupSummary(
-  overrides: Partial<ExpenseGroupSummaryView> & {
-    presentationState?: ExpenseConfirmedPresentationState
-  } = {},
-): ExpenseGroupSummaryView {
-  const { presentationState = { status: 'confirmed' }, ...summaryOverrides } = overrides
-  const id = summaryOverrides.id ?? 'group-1'
-  const name = summaryOverrides.name ?? 'Sumarferð'
+const durableAnna: ExpenseDashboardPersonFacetView = {
+  key: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  label: 'Anna vinkona',
+  kind: 'durable',
+}
+const durableBjarni: ExpenseDashboardPersonFacetView = {
+  key: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  label: 'Bjarni',
+  kind: 'durable',
+}
+const manualSiggiOne: ExpenseDashboardPersonFacetView = {
+  key: 'cccccccccccccccccccccccccccccccc',
+  label: 'Siggi',
+  kind: 'manual',
+}
+const manualSiggiTwo: ExpenseDashboardPersonFacetView = {
+  key: 'dddddddddddddddddddddddddddddddd',
+  label: 'Siggi',
+  kind: 'manual',
+}
+
+function presentation(
+  state: ExpenseDashboardPresentationView['presentationState'],
+  key: string,
+  title: string | null,
+  facets: ExpenseDashboardPersonFacetView[],
+  circleKey?: string,
+): ExpenseDashboardPresentationView {
+  const isDraft = state === 'private_draft' || state === 'shared_draft'
+  const id = `${key.slice(0, 8)}-${key.slice(8, 12)}-4${key.slice(13, 16)}-8${key.slice(17, 20)}-${key.slice(20, 32)}`
   return {
-    id,
-    kind: 'group',
-    name,
-    emoji: '🏕️',
-    status: 'active',
-    role: 'member',
-    selfBalances: [
-      {
-        memberId: 'member-self',
-        displayName: 'Ég',
-        currency: 'ISK',
-        amountMinor: -12_500,
-        isSelf: true,
-      },
-    ],
-    expenseCount: 3,
-    pendingConfirmationCount: 0,
-    cancelled: false,
-    createdAt: '2026-08-04T09:00:00.000Z',
-    expensePresentations: [{
-      expenseId: `${id}-expense`,
-      title: name,
-      expenseStatus: 'active',
-      presentationState,
-    }],
-    ...summaryOverrides,
+    presentationKey: key,
+    presentationState: state,
+    title,
+    needsAttention: false,
+    totalMinor: 12_500,
+    currency: 'ISK',
+    href: isDraft
+      ? `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${id}`
+      : `/auth-mvp/utlagt-og-endurgreitt/utgjold/${id}`,
+    order: {
+      basis: isDraft ? 'visible_updated_at' : 'incurred_on',
+      primary: isDraft ? '2026-08-31T20:00:00.000Z' : '2026-08-31',
+      secondary: '2026-08-31T20:00:00.000Z',
+      tieBreaker: key,
+    },
+    personFacets: facets,
+    circleFacets: circleKey ? [{ key: circleKey, label: circleKey.startsWith('e') ? 'Fjölskylda' : 'Vinir' }] : [],
   }
+}
+
+function dashboardRows(): ExpenseDashboardPresentationView[] {
+  return [
+    presentation('private_draft', '11111111111111111111111111111111', 'Private Anna', [durableAnna]),
+    presentation('shared_draft', '22222222222222222222222222222222', 'Shared Anna og Bjarni', [durableAnna, durableBjarni], 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'),
+    presentation('confirmed', '33333333333333333333333333333333', 'Confirmed Siggi eitt', [manualSiggiOne], 'ffffffffffffffffffffffffffffffff'),
+    presentation('settled', '44444444444444444444444444444444', 'Settled Bjarni', [durableBjarni], 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'),
+    presentation('cancelled', '55555555555555555555555555555555', 'Cancelled Siggi tvö', [manualSiggiTwo]),
+  ]
 }
 
 function invitation(overrides: Partial<ExpenseInvitationView> = {}): ExpenseInvitationView {
@@ -177,14 +168,16 @@ function invitation(overrides: Partial<ExpenseInvitationView> = {}): ExpenseInvi
 
 function dashboard(overrides: Partial<ExpenseDashboardView> = {}): ExpenseDashboardView {
   return {
-    groups: [groupSummary()],
+    groups: [],
     oneOffs: [],
     invitations: [],
+    memberInvitations: [],
     totals: [{ currency: 'ISK', owedToYouMinor: 4_000, youOweMinor: 12_500 }],
     pendingConfirmationCount: 0,
     hasPayAllItems: true,
     privateDrafts: { status: 'ready', items: [] },
     sharedDrafts: { status: 'ready', items: [] },
+    dashboardPresentations: { status: 'ready', rows: dashboardRows() },
     ...overrides,
   }
 }
@@ -208,723 +201,144 @@ beforeEach(() => {
   mockRespondInvitation.mockResolvedValue({ ok: true })
 })
 
-describe('ExpenseDashboard compact and privacy-safe projection', () => {
-  it('offers the consolidated settlement only when the signed-in user owes money', async () => {
-    const { rerender } = render(await ExpenseDashboard({
-      dashboard: dashboard(),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    expect(screen.getByRole('link', { name: 'Gera allt upp' })).toHaveAttribute(
-      'href',
-      '/auth-mvp/utlagt-og-endurgreitt/gera-upp',
-    )
-
-    rerender(await ExpenseDashboard({
-      dashboard: dashboard({
-        totals: [{ currency: 'ISK', owedToYouMinor: 4_000, youOweMinor: 0 }],
-        hasPayAllItems: false,
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-    expect(screen.queryByRole('link', { name: 'Gera allt upp' })).not.toBeInTheDocument()
-  })
-
-  it('shows the four accessible presentation controls with Active selected by default', async () => {
+describe('ExpenseDashboard authoritative presentation directory', () => {
+  it('keeps the guide and pay-all actions while using full mobile touch targets', async () => {
     render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile() }))
 
-    expect(screen.queryByRole('navigation', { name: 'Skref við skráningu útgjalds' })).not.toBeInTheDocument()
-    const lifecycleGroup = screen.getByRole('group', { name: 'Veldu hvaða UL-færslur sjást' })
-    expect(lifecycleGroup).toHaveClass('grid-cols-2')
-    expect(screen.getByRole('button', { name: 'Allt' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Virkt' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Virkt' })).toHaveAttribute('type', 'button')
-    expect(screen.getByRole('button', { name: 'Virkt' })).toHaveClass('min-h-11', 'focus-visible:ring-2')
-    expect(screen.getByRole('button', { name: 'Uppgert' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Fellt niður' })).toHaveAttribute('aria-pressed', 'false')
-    expect(within(lifecycleGroup).getAllByRole('button').map((button) => button.textContent)).toEqual([
-      'Allt',
-      'Virkt',
-      'Uppgert',
-      'Fellt niður',
-    ])
-    expect(screen.queryByRole('link', { name: /Tengslahringir/ })).not.toBeInTheDocument()
-  })
-
-  it('renders only compact group aggregates and never arbitrary private detail fields', async () => {
-    const privateNote = 'LEYNILEG ATHUGASEMD SEM MÁ EKKI BIRTAST'
-    const privatePaymentDetails = '0159-26-123456 / 010180-9999'
-    const unsafeDashboard = dashboard({
-      groups: [
-        {
-          ...groupSummary(),
-          note: privateNote,
-          paymentSnapshot: { accountNumber: privatePaymentDetails },
-          members: [{ email: 'private@example.test' }],
-        } as unknown as ExpenseGroupSummaryView,
-      ],
-    })
-
-    const { container } = render(await ExpenseDashboard({ dashboard: unsafeDashboard, paymentProfile: emptyPaymentProfile() }))
-
-    expect(screen.getByText('Sumarferð')).toBeInTheDocument()
-    expect(screen.getByText(/Þú átt eftir að greiða 12\.500/)).toBeInTheDocument()
-    expect(screen.queryByText(/3 útgjöld/)).not.toBeInTheDocument()
-    expect(screen.getByText('Staðan þín')).toBeInTheDocument()
-    expect(container.textContent).not.toContain(privateNote)
-    expect(container.textContent).not.toContain(privatePaymentDetails)
-    expect(container.textContent).not.toContain('private@example.test')
-  })
-
-  it('shows an incomplete private draft as a resumable entry with its unallocated remainder', async () => {
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [],
-        totals: [],
-        privateDrafts: {
-          status: 'ready',
-          items: [{
-            id: '11111111-1111-4111-8111-111111111111',
-            contextType: 'one_off',
-            groupId: null,
-            expenseId: null,
-            title: 'Hundrað þúsund',
-            totalMinor: 100_000,
-            currency: 'ISK',
-            differenceMinor: 80_000,
-            needsAttention: true,
-            savedAt: '2026-08-06T10:00:00.000Z',
-          }],
-        },
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    expect(screen.getByText('Skipting þarf lagfæringu')).toBeInTheDocument()
-    expect(screen.getByText(/Óúthlutað 80\.000/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Hundrað þúsund/ })).toHaveAttribute(
-      'href',
-      '/auth-mvp/utlagt-og-endurgreitt/nytt?draft=11111111-1111-4111-8111-111111111111',
+    expect(screen.getByRole('link', { name: 'Leiðbeiningar' })).toHaveAttribute(
+      'href', '/auth-mvp/utlagt-og-endurgreitt/leidbeiningar',
+    )
+    expect(screen.getByRole('link', { name: 'Leiðbeiningar' })).toHaveClass('min-h-11')
+    expect(screen.getByRole('link', { name: 'Gera allt upp' })).toHaveAttribute(
+      'href', '/auth-mvp/utlagt-og-endurgreitt/gera-upp',
     )
   })
 
-  it('keeps a mathematically valid but unfinished private draft recoverable', async () => {
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [],
-        totals: [],
-        privateDrafts: {
-          status: 'ready',
-          items: [{
-            id: '22222222-2222-4222-8222-222222222222',
-            contextType: 'one_off',
-            groupId: null,
-            expenseId: null,
-            title: 'Ólokið kvöldverðaruppkast',
-            totalMinor: 85_000,
-            currency: 'ISK',
-            differenceMinor: null,
-            needsAttention: false,
-            savedAt: '2026-08-06T10:00:00.000Z',
-          }],
-        },
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
+  it('shows the three active sections by default and the two closed sections on demand', async () => {
+    render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile() }))
 
-    expect(screen.getByText('Drög fyrir mig')).toBeInTheDocument()
-    expect(screen.getByText('Halda áfram')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Ólokið kvöldverðaruppkast/ })).toHaveAttribute(
-      'href',
-      '/auth-mvp/utlagt-og-endurgreitt/nytt?draft=22222222-2222-4222-8222-222222222222',
-    )
-  })
-
-  it('keeps a private draft with no valid amount visible without inventing an amount', async () => {
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [],
-        totals: [],
-        privateDrafts: {
-          status: 'ready',
-          items: [{
-            id: '33333333-3333-4333-8333-333333333333',
-            contextType: 'one_off',
-            groupId: null,
-            expenseId: null,
-            title: '',
-            totalMinor: null,
-            currency: 'ISK',
-            differenceMinor: null,
-            needsAttention: true,
-            savedAt: '2026-08-06T10:00:00.000Z',
-          }],
-        },
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    const draftLink = screen.getByRole('link', { name: /Ónefnd færsla/ })
-    expect(draftLink).toHaveAttribute(
-      'href',
-      '/auth-mvp/utlagt-og-endurgreitt/nytt?draft=33333333-3333-4333-8333-333333333333',
-    )
-    expect(draftLink).toHaveTextContent('Skipting þarf lagfæringu')
-    expect(draftLink).not.toHaveTextContent('0 kr.')
-  })
-
-  it('shows confirmed context once and fails closed when duplicate exact edit drafts exist', async () => {
-    const confirmed = groupSummary({
-      id: '30000000-0000-4000-8000-000000000099',
-      name: 'Kvöldmatur',
-      expensePresentations: [{
-        expenseId: '40000000-0000-4000-8000-000000000099',
-        title: 'Kvöldmatur',
-        expenseStatus: 'active',
-        presentationState: { status: 'ambiguous', reason: 'duplicate_same_expense' },
-      }],
-    })
-    const editDraft = (id: string) => ({
-      id,
-      contextType: 'edit' as const,
-      groupId: confirmed.id,
-      expenseId: '40000000-0000-4000-8000-000000000099',
-      title: 'Kvöldmatur',
-      totalMinor: 10_000,
-      currency: 'ISK',
-      differenceMinor: null,
-      needsAttention: false,
-      savedAt: '2026-08-28T08:00:00.000Z',
-    })
-
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [confirmed],
-        privateDrafts: {
-          status: 'ready',
-          items: [
-            editDraft('53000000-0000-4000-8000-000000000021'),
-            editDraft('53000000-0000-4000-8000-000000000022'),
-          ],
-        },
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    expect(screen.getAllByText('Kvöldmatur')).toHaveLength(1)
-    expect(screen.queryByText('Drög fyrir mig')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveTextContent(
-      'Ekki er hægt að halda breytingum áfram fyrr en drög hafa verið yfirfarin',
-    )
-    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveAttribute(
-      'href', '/auth-mvp/utlagt-og-endurgreitt/utgjold/40000000-0000-4000-8000-000000000099',
-    )
-    expect(screen.queryByRole('link', { name: /Halda áfram að breyta/ })).not.toBeInTheDocument()
-  })
-
-  it('attaches one exact edit continuation to the confirmed context row', async () => {
-    const draftId = '53000000-0000-4000-8000-000000000031'
-    const expenseId = '40000000-0000-4000-8000-000000000031'
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [groupSummary({
-          id: '30000000-0000-4000-8000-000000000031',
-          name: 'Kvöldmatur',
-          presentationState: { status: 'editing', draftId, expenseId },
-        })],
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    expect(screen.getAllByText('Kvöldmatur')).toHaveLength(1)
-    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveAttribute(
-      'href',
-      `/auth-mvp/utlagt-og-endurgreitt/utgjold/${expenseId}/breyta?step=split&draft=${draftId}`,
-    )
-    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveTextContent('Halda áfram að breyta')
-    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveTextContent(
-      'Þú átt eftir að greiða 12.500',
-    )
-  })
-
-  it('returns from editing to confirmed presentation after discard and save transitions', async () => {
-    const groupId = '30000000-0000-4000-8000-000000000041'
-    const expenseId = '40000000-0000-4000-8000-000000000041'
-    const draftId = '53000000-0000-4000-8000-000000000041'
-    const renderState = (state: ExpenseConfirmedPresentationState, name = 'Kvöldmatur') => ExpenseDashboard({
-      dashboard: dashboard({ groups: [groupSummary({ id: groupId, name, presentationState: state })] }),
-      paymentProfile: emptyPaymentProfile(),
-    })
-    const { rerender } = render(await renderState({ status: 'editing', draftId, expenseId }))
-
-    expect(screen.getAllByText('Kvöldmatur')).toHaveLength(1)
-    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).toHaveTextContent('Breytingar í vinnslu')
-
-    rerender(await renderState({ status: 'confirmed' }))
-    expect(screen.getAllByText('Kvöldmatur')).toHaveLength(1)
-    expect(screen.getByRole('link', { name: /Kvöldmatur/ })).not.toHaveTextContent('Breytingar í vinnslu')
-
-    rerender(await renderState({ status: 'confirmed' }, 'Uppfærður kvöldmatur'))
-    expect(screen.queryByText('Kvöldmatur')).not.toBeInTheDocument()
-    expect(screen.getAllByText('Uppfærður kvöldmatur')).toHaveLength(1)
-  })
-
-  it('shows confirmed state once when edit lookup is unavailable', async () => {
-    render(await ExpenseDashboard({
-      dashboard: dashboard({ groups: [groupSummary({
-        presentationState: { status: 'unavailable' },
-      })] }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    expect(screen.getAllByText('Sumarferð')).toHaveLength(1)
-    expect(screen.getByRole('link', { name: /Sumarferð/ })).toHaveAttribute(
-      'href', '/auth-mvp/utlagt-og-endurgreitt/utgjold/group-1-expense',
-    )
-    expect(screen.getByRole('link', { name: /Sumarferð/ })).toHaveTextContent(
-      'Ekki tókst að sækja stöðu breytinga',
-    )
-  })
-
-  it('keeps edit continuations for different one-off Expenses independently addressable', async () => {
-    const firstExpenseId = '40000000-0000-4000-8000-000000000061'
-    const secondExpenseId = '40000000-0000-4000-8000-000000000062'
-    const firstDraftId = '53000000-0000-4000-8000-000000000061'
-    const secondDraftId = '53000000-0000-4000-8000-000000000062'
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [],
-        oneOffs: [
-          groupSummary({
-            id: '30000000-0000-4000-8000-000000000061',
-            kind: 'one_off',
-            name: 'Fyrri kostnaður',
-            presentationState: { status: 'editing', draftId: firstDraftId, expenseId: firstExpenseId },
-          }),
-          groupSummary({
-            id: '30000000-0000-4000-8000-000000000062',
-            kind: 'one_off',
-            name: 'Seinni kostnaður',
-            presentationState: { status: 'editing', draftId: secondDraftId, expenseId: secondExpenseId },
-          }),
-        ],
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    expect(screen.getByRole('link', { name: /Fyrri kostnaður/ })).toHaveAttribute(
-      'href', `/auth-mvp/utlagt-og-endurgreitt/utgjold/${firstExpenseId}/breyta?step=split&draft=${firstDraftId}`,
-    )
-    expect(screen.getByRole('link', { name: /Seinni kostnaður/ })).toHaveAttribute(
-      'href', `/auth-mvp/utlagt-og-endurgreitt/utgjold/${secondExpenseId}/breyta?step=split&draft=${secondDraftId}`,
-    )
-  })
-
-  it('renders two exact editing Expense representations inside the same group', async () => {
-    const groupId = '30000000-0000-4000-8000-000000000071'
-    const firstExpenseId = '40000000-0000-4000-8000-000000000071'
-    const secondExpenseId = '40000000-0000-4000-8000-000000000072'
-    const firstDraftId = '53000000-0000-4000-8000-000000000071'
-    const secondDraftId = '53000000-0000-4000-8000-000000000072'
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [groupSummary({
-          id: groupId,
-          name: 'Ferðakostnaður',
-          expensePresentations: [
-            {
-              expenseId: firstExpenseId,
-              title: 'Bensín',
-              expenseStatus: 'active',
-              presentationState: { status: 'editing', draftId: firstDraftId, expenseId: firstExpenseId },
-            },
-            {
-              expenseId: secondExpenseId,
-              title: 'Matur',
-              expenseStatus: 'active',
-              presentationState: { status: 'editing', draftId: secondDraftId, expenseId: secondExpenseId },
-            },
-          ],
-        } as Partial<ExpenseGroupSummaryView>)],
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    expect(screen.getByRole('link', { name: /Bensín/ })).toHaveAttribute(
-      'href', `/auth-mvp/utlagt-og-endurgreitt/utgjold/${firstExpenseId}/breyta?step=split&draft=${firstDraftId}`,
-    )
-    expect(screen.getByRole('link', { name: /Matur/ })).toHaveAttribute(
-      'href', `/auth-mvp/utlagt-og-endurgreitt/utgjold/${secondExpenseId}/breyta?step=split&draft=${secondDraftId}`,
-    )
-    expect(screen.getAllByText(/Þú átt eftir að greiða 12\.500/)).toHaveLength(1)
-    expect(screen.queryByText('Fleiri en ein breyting er í vinnslu')).not.toBeInTheDocument()
-  })
-
-  it('keeps genuinely new same-content creation drafts as separate logical rows', async () => {
-    const draft = (id: string) => ({
-      id,
-      contextType: 'one_off' as const,
-      groupId: null,
-      expenseId: null,
-      title: 'Sama efni',
-      totalMinor: 10_000,
-      currency: 'ISK',
-      differenceMinor: null,
-      needsAttention: false,
-      savedAt: '2026-08-28T08:00:00.000Z',
-    })
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [], totals: [],
-        privateDrafts: { status: 'ready', items: [
-          draft('53000000-0000-4000-8000-000000000051'),
-          draft('53000000-0000-4000-8000-000000000052'),
-        ] },
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    expect(screen.getAllByRole('link', { name: /Sama efni/ })).toHaveLength(2)
-  })
-
-  it('shows shared drafts separately and links each exact viewer to its authorized detail', async () => {
-    const authorDraftId = '44444444-4444-4444-8444-444444444444'
-    const participantPublicationId = '66666666-6666-4666-8666-666666666666'
-    const { container } = render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [],
-        totals: [],
-        privateDrafts: {
-          status: 'ready',
-          items: [{
-            id: authorDraftId,
-            contextType: 'one_off',
-            groupId: null,
-            expenseId: null,
-            title: 'Ódeild sameiginleg drög',
-            totalMinor: 24_000,
-            currency: 'ISK',
-            differenceMinor: null,
-            needsAttention: false,
-            savedAt: '2026-08-06T10:00:00.000Z',
-          }],
-        },
-        sharedDrafts: {
-          status: 'ready',
-          items: [{
-            lifecycleState: 'shared_draft',
-            publicationId: '55555555-5555-4555-8555-555555555555',
-            publicationVersion: 2,
-            title: 'Ódeild sameiginleg drög',
-            totalMinor: 24_000,
-            currency: 'ISK',
-            incurredOn: '2026-08-25',
-            allocationState: 'balanced_unconfirmed',
-            viewerRole: 'author',
-            hasUnsharedChanges: true,
-            detailTarget: { kind: 'private_draft', draftId: authorDraftId },
-            authorDraft: { contextType: 'one_off', groupId: null, expenseId: null },
-          }, {
-            lifecycleState: 'shared_draft',
-            publicationId: participantPublicationId,
-            publicationVersion: 1,
-            title: 'Sameiginleg drög frá öðrum',
-            totalMinor: 8_500,
-            currency: 'ISK',
-            incurredOn: '2026-08-25',
-            allocationState: 'incomplete',
-            viewerRole: 'participant',
-            hasUnsharedChanges: null,
-            detailTarget: { kind: 'shared_draft', publicationId: participantPublicationId },
-            authorDraft: null,
-          }],
-        },
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
+    const controls = screen.getByRole('group', { name: 'Veldu hvaða færslur sjást' })
+    expect(within(controls).getAllByRole('button').map((button) => button.textContent)).toEqual(['Í gangi', 'Lokið'])
+    expect(screen.getByRole('button', { name: 'Í gangi' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('heading', { name: 'Drög fyrir mig' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Drög með öðrum' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Drög fyrir mig' })).not.toBeInTheDocument()
-    expect(screen.getAllByText('Ódeild sameiginleg drög')).toHaveLength(1)
-    expect(screen.getByRole('link', { name: /Ódeild sameiginleg drög/ })).toHaveAttribute(
-      'href',
-      `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${authorDraftId}`,
-    )
-    expect(screen.getByText('Ódeildar breytingar')).toBeInTheDocument()
-    expect(screen.getByText('Skiptingin er enn í vinnslu.')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Sameiginleg drög frá öðrum/ })).toHaveAttribute(
-      'href',
-      `/auth-mvp/utlagt-og-endurgreitt/drog/${participantPublicationId}`,
-    )
-    expect(container.querySelectorAll(`a[href="/auth-mvp/utlagt-og-endurgreitt/drog/${participantPublicationId}"]`)).toHaveLength(1)
+    expect(screen.getByRole('heading', { name: 'Staðfest' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      'Drög fyrir mig', 'Drög með öðrum', 'Staðfest',
+    ])
+    expect(screen.queryByText('Settled Bjarni')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lokið' }))
+    expect(screen.getByRole('heading', { name: 'Uppgert' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Fellt niður' })).toBeInTheDocument()
+    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
+      'Uppgert', 'Fellt niður',
+    ])
+    expect(screen.getByText('Settled Bjarni')).toBeInTheDocument()
+    expect(screen.getByText('Cancelled Siggi tvö')).toBeInTheDocument()
+    expect(screen.queryByText('Private Anna')).not.toBeInTheDocument()
   })
 
-  it('reports independent draft-source failures without hiding confirmed financial data', async () => {
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        privateDrafts: { status: 'unavailable', items: [] },
-        sharedDrafts: { status: 'unavailable', items: [] },
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
+  it('derives global durable/manual/circle filters from all visible rows', async () => {
+    render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile() }))
 
-    expect(screen.getByText('Ekki tókst að sækja drögin þín núna.')).toBeInTheDocument()
-    expect(screen.getByText('Ekki tókst að sækja sameiginleg drög núna.')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Færslur' })).toBeInTheDocument()
-    expect(screen.getByText('Sumarferð')).toBeInTheDocument()
-    expect(screen.getByText(/Þú átt eftir að greiða 12\.500/)).toBeInTheDocument()
-  })
+    fireEvent.click(screen.getByText('Sía færslur'))
+    expect(screen.getByText('Fólk')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Anna vinkona' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Bjarni' })).toBeInTheDocument()
+    expect(screen.getByText('Án netfangs (2)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Fjölskylda' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Vinir' })).toBeInTheDocument()
 
-  it('partitions every confirmed context exactly once by actor-relative lifecycle', async () => {
-    const activeBalance = groupSummary({
-      id: 'active-balance',
-      name: 'Opin staða',
-    })
-    const activePending = groupSummary({
-      id: 'active-pending',
-      name: 'Bíður staðfestingar',
-      selfBalances: [],
-      pendingConfirmationCount: 1,
-    })
-    const settled = groupSummary({
-      id: 'personally-settled',
-      name: 'Uppgert fyrir mig',
-      status: 'active',
-      selfBalances: [],
-      pendingConfirmationCount: 0,
-    })
-    const cancelled = groupSummary({
-      id: 'cancelled-one-off',
-      kind: 'one_off',
-      name: 'Martine 30 ára',
-      selfBalances: [{
-        memberId: 'stale-self',
-        displayName: 'Ég',
-        currency: 'ISK',
-        amountMinor: -5_000,
-        isSelf: true,
-      }],
-      pendingConfirmationCount: 2,
-      cancelled: true,
-    })
-    const noConfirmedExpense = groupSummary({
-      id: 'no-confirmed-expense',
-      name: 'Tómt samhengi',
-      expenseCount: 0,
-      selfBalances: [],
-      pendingConfirmationCount: 0,
-    })
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [activeBalance, activePending, settled, noConfirmedExpense],
-        oneOffs: [cancelled],
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    expect(screen.getByText('Opin staða')).toBeInTheDocument()
-    expect(screen.getByText('Bíður staðfestingar')).toBeInTheDocument()
-    expect(screen.queryByText('Uppgert fyrir mig')).not.toBeInTheDocument()
-    expect(screen.queryByText('Martine 30 ára')).not.toBeInTheDocument()
-    expect(screen.queryByText('Tómt samhengi')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Allt' }))
-
-    expect(screen.getByText('Opin staða')).toBeInTheDocument()
-    expect(screen.getByText('Bíður staðfestingar')).toBeInTheDocument()
-    expect(screen.getByText('Uppgert fyrir mig')).toBeInTheDocument()
-    expect(screen.getByText('Martine 30 ára')).toBeInTheDocument()
-    expect(screen.queryByText('Tómt samhengi')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Uppgert' }))
-
-    expect(screen.getByText('Uppgert fyrir mig')).toBeInTheDocument()
-    expect(screen.queryByText('Opin staða')).not.toBeInTheDocument()
-    expect(screen.queryByText('Bíður staðfestingar')).not.toBeInTheDocument()
-    expect(screen.queryByText('Martine 30 ára')).not.toBeInTheDocument()
-    expect(screen.queryByText('Tómt samhengi')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Fellt niður' }))
-
-    expect(screen.getByText('Martine 30 ára')).toBeInTheDocument()
-    expect(screen.queryByText('Opin staða')).not.toBeInTheDocument()
-    expect(screen.queryByText('Bíður staðfestingar')).not.toBeInTheDocument()
-    expect(screen.queryByText('Uppgert fyrir mig')).not.toBeInTheDocument()
-    expect(screen.queryByText('Tómt samhengi')).not.toBeInTheDocument()
-  })
-
-  it('derives filters from the lifecycle base and preserves only valid selections on view changes', async () => {
-    const matchingContext = {
-      counterparties: [
-        { key: 'anna', label: 'Anna' },
-        { key: 'bjarni', label: 'Bjarni' },
-      ],
-      relationshipCircles: [{ id: 'circle-a', name: 'Fjölskylda' }],
-    }
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [
-          groupSummary({ id: 'active-match', name: 'Virkt passar', ...matchingContext }),
-          groupSummary({
-            id: 'active-missing-person',
-            name: 'Virkt vantar Bjarna',
-            counterparties: [{ key: 'anna', label: 'Anna' }],
-            relationshipCircles: [{ id: 'circle-b', name: 'Vinir' }],
-          }),
-          groupSummary({
-            id: 'settled-match',
-            name: 'Uppgert passar',
-            selfBalances: [],
-            pendingConfirmationCount: 0,
-            counterparties: [{ key: 'anna', label: 'Anna' }],
-            relationshipCircles: [{ id: 'circle-a', name: 'Fjölskylda' }],
-          }),
-          groupSummary({
-            id: 'cancelled-match',
-            name: 'Fellt niður passar',
-            cancelled: true,
-            ...matchingContext,
-          }),
-        ],
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    fireEvent.click(screen.getByRole('button', { name: 'Anna' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Anna vinkona' }))
     fireEvent.click(screen.getByRole('button', { name: 'Bjarni' }))
+    expect(screen.queryByText('Private Anna')).not.toBeInTheDocument()
+    expect(screen.getByText('Shared Anna og Bjarni')).toBeInTheDocument()
+  })
+
+  it('keeps same-name manual guests as distinct entry-scoped filter choices', async () => {
+    render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile() }))
+
+    fireEvent.click(screen.getByText('Sía færslur'))
+    fireEvent.click(screen.getByText('Án netfangs (2)'))
+    const siggiButtons = screen.getAllByRole('button', { name: 'Siggi' })
+    expect(siggiButtons).toHaveLength(2)
+    fireEvent.click(siggiButtons[0]!)
+    expect(screen.getByText('Confirmed Siggi eitt')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Lokið' }))
+    expect(screen.queryByText('Cancelled Siggi tvö')).not.toBeInTheDocument()
+    expect(screen.getByText('Engar færslur passa við síurnar.')).toBeInTheDocument()
+  })
+
+  it('keeps circle selection OR while combining it with people using AND', async () => {
+    render(await ExpenseDashboard({ dashboard: dashboard(), paymentProfile: emptyPaymentProfile() }))
+
+    fireEvent.click(screen.getByText('Sía færslur'))
     fireEvent.click(screen.getByRole('button', { name: 'Fjölskylda' }))
     fireEvent.click(screen.getByRole('button', { name: 'Vinir' }))
+    expect(screen.getByText('Shared Anna og Bjarni')).toBeInTheDocument()
+    expect(screen.getByText('Confirmed Siggi eitt')).toBeInTheDocument()
 
-    expect(screen.getByText('Virkt passar')).toBeInTheDocument()
-    expect(screen.queryByText('Virkt vantar Bjarna')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Uppgert' }))
-    expect(screen.getByText('Uppgert passar')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Fjölskylda' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByRole('button', { name: 'Bjarni' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Vinir' })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Virkt' }))
-    expect(screen.getByText('Virkt passar')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Fjölskylda' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Bjarni' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Vinir' })).toHaveAttribute('aria-pressed', 'false')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Allt' }))
-    expect(screen.getByRole('button', { name: 'Bjarni' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Vinir' })).toHaveAttribute('aria-pressed', 'false')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hreinsa síur' }))
-    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Fjölskylda' })).toHaveAttribute('aria-pressed', 'false')
-  })
-
-  it('prunes stale people and circle state after refresh so options cannot resurrect selected', async () => {
-    const activeItems = (includeTransient: boolean) => [
-      groupSummary({
-        id: 'refresh-match',
-        name: 'Refresh passar',
-        counterparties: [
-          { key: 'anna', label: 'Anna' },
-          ...(includeTransient ? [{ key: 'biggi', label: 'Biggi' }] : []),
-        ],
-        relationshipCircles: [
-          { id: 'circle-stable', name: 'Varandi hringur' },
-          ...(includeTransient ? [{ id: 'circle-transient', name: 'Tímabundinn hringur' }] : []),
-        ],
-      }),
-    ]
-    const renderDashboard = (includeTransient: boolean) => ExpenseDashboard({
-      dashboard: dashboard({ groups: activeItems(includeTransient) }),
-      paymentProfile: emptyPaymentProfile(),
-    })
-    const { rerender } = render(await renderDashboard(true))
-
-    fireEvent.click(screen.getByRole('button', { name: 'Anna' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Biggi' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Varandi hringur' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Tímabundinn hringur' }))
-    expect(screen.getByText('Refresh passar')).toBeInTheDocument()
-
-    rerender(await renderDashboard(false))
-
-    expect(screen.queryByRole('button', { name: 'Biggi' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Tímabundinn hringur' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Varandi hringur' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Hreinsa síur' })).toBeInTheDocument()
-    expect(screen.getByText('Refresh passar')).toBeInTheDocument()
-    expect(screen.queryByText('Engar færslur passa við síurnar.')).not.toBeInTheDocument()
-
-    rerender(await renderDashboard(true))
-
-    expect(screen.getByRole('button', { name: 'Biggi' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Tímabundinn hringur' })).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Anna' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Varandi hringur' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('Refresh passar')).toBeInTheDocument()
-  })
-
-  it('distinguishes lifecycle empty states from filter-empty results', async () => {
-    render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [
-          groupSummary({
-            id: 'active-anna',
-            name: 'Virkt með Önnu',
-            counterparties: [{ key: 'anna', label: 'Anna' }],
-          }),
-          groupSummary({
-            id: 'active-bjarni',
-            name: 'Virkt með Bjarna',
-            counterparties: [{ key: 'bjarni', label: 'Bjarni' }],
-          }),
-          groupSummary({
-            id: 'settled-bjarni',
-            name: 'Uppgert með Bjarna',
-            selfBalances: [],
-            pendingConfirmationCount: 0,
-            counterparties: [{ key: 'bjarni', label: 'Bjarni' }],
-          }),
-        ],
-      }),
-      paymentProfile: emptyPaymentProfile(),
-    }))
-
-    fireEvent.click(screen.getByRole('button', { name: 'Anna' }))
     fireEvent.click(screen.getByRole('button', { name: 'Bjarni' }))
-    expect(screen.getByText('Engar færslur passa við síurnar.')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hreinsa síur' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Fellt niður' }))
-    expect(screen.getByText('Engar niðurfelldar færslur.')).toBeInTheDocument()
+    expect(screen.getByText('Shared Anna og Bjarni')).toBeInTheDocument()
+    expect(screen.queryByText('Confirmed Siggi eitt')).not.toBeInTheDocument()
   })
 
-  it('uses the confirmed-union empty state when Allt has no classified rows', async () => {
+  it('renders a bounded unavailable state without falling back to legacy rows', async () => {
     render(await ExpenseDashboard({
-      dashboard: dashboard({
-        groups: [groupSummary({ expenseCount: 0 })],
-        totals: [],
-      }),
+      dashboard: dashboard({ dashboardPresentations: { status: 'unavailable', rows: [] } }),
       paymentProfile: emptyPaymentProfile(),
     }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Allt' }))
-    expect(screen.getByText('Engar staðfestar færslur.')).toBeInTheDocument()
-    expect(screen.queryByText('Engar færslur passa við síurnar.')).not.toBeInTheDocument()
+    expect(screen.getByText('Ekki tókst að sækja færslurnar núna.')).toBeInTheDocument()
+    expect(screen.queryByText('Private Anna')).not.toBeInTheDocument()
   })
 
-  it('shows an invitation as a consent decision without a pre-acceptance group link', async () => {
+  it('renders an authorized href as a link and a null href as a non-link row', async () => {
+    const rows = dashboardRows()
+    rows[2] = { ...rows[2]!, title: 'No route', href: null }
+    render(await ExpenseDashboard({
+      dashboard: dashboard({ dashboardPresentations: { status: 'ready', rows } }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByRole('link', { name: /Private Anna/ }).getAttribute('href')).toContain('/nytt?draft=')
+    expect(screen.getByText('No route').closest('a')).toBeNull()
+  })
+
+  it('renders the localized untitled fallback and textual attention state for a recoverable private draft', async () => {
+    const rows = dashboardRows()
+    rows[0] = {
+      ...rows[0]!,
+      title: null,
+      needsAttention: true,
+      totalMinor: null,
+      currency: null,
+      personFacets: [],
+      circleFacets: [],
+    }
+    const { container } = render(await ExpenseDashboard({
+      dashboard: dashboard({ dashboardPresentations: { status: 'ready', rows } }),
+      paymentProfile: emptyPaymentProfile(),
+    }))
+
+    expect(screen.getByText('Ónefnd færsla')).toBeInTheDocument()
+    expect(screen.getByText('Þarfnast lagfæringar')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Ónefnd færsla/ }).getAttribute('href'))
+      .toContain('/nytt?draft=')
+    expect(container.querySelector('.text-amber-700')).not.toBeNull()
+    expect(screen.queryByText('Ekki tókst að sækja færslurnar núna.')).not.toBeInTheDocument()
+  })
+
+  it('shows an invitation as a consent decision outside the entry filters', async () => {
     const invited = invitation()
     const { container } = render(await ExpenseDashboard({
-      dashboard: dashboard({ groups: [], invitations: [invited], totals: [] }),
+      dashboard: dashboard({ invitations: [invited] }),
       paymentProfile: emptyPaymentProfile(),
     }))
 
     expect(screen.getByText('Boð sem bíða')).toBeInTheDocument()
-    expect(screen.getByText('Viltu taka þátt í Bústaðarferð? Þú sérð ekki fjárhagsupplýsingar hópsins fyrr en þú samþykkir.')).toBeInTheDocument()
+    expect(screen.getByText(/Viltu taka þátt í Bústaðarferð/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Samþykkja boð' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Hafna boði' })).toBeInTheDocument()
     expect(container.querySelector('a[href="/auth-mvp/utlagt-og-endurgreitt/hopar/invited-group-1"]')).toBeNull()
@@ -934,16 +348,10 @@ describe('ExpenseDashboard compact and privacy-safe projection', () => {
 describe('ExpenseInvitationActions consent transitions', () => {
   it('accepts explicitly and navigates to the group only after success', async () => {
     render(<ExpenseInvitationActions invitation={invitation()} />)
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Samþykkja boð' }))
-    })
-
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Samþykkja boð' })) })
     await waitFor(() => expect(mockRespondInvitation).toHaveBeenCalledTimes(1))
     expect(mockRespondInvitation).toHaveBeenCalledWith(expect.objectContaining({
-      group_id: 'invited-group-1',
-      action: 'accept',
-      request_id: expect.any(String),
+      group_id: 'invited-group-1', action: 'accept', request_id: expect.any(String),
     }))
     expect(mockPush).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt/hopar/invited-group-1')
     expect(mockRefresh).toHaveBeenCalledTimes(1)
@@ -951,16 +359,10 @@ describe('ExpenseInvitationActions consent transitions', () => {
 
   it('declines explicitly and returns to the expense dashboard after success', async () => {
     render(<ExpenseInvitationActions invitation={invitation()} />)
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Hafna boði' }))
-    })
-
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Hafna boði' })) })
     await waitFor(() => expect(mockRespondInvitation).toHaveBeenCalledTimes(1))
     expect(mockRespondInvitation).toHaveBeenCalledWith(expect.objectContaining({
-      group_id: 'invited-group-1',
-      action: 'decline',
-      request_id: expect.any(String),
+      group_id: 'invited-group-1', action: 'decline', request_id: expect.any(String),
     }))
     expect(mockPush).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt')
     expect(mockRefresh).toHaveBeenCalledTimes(1)
@@ -969,11 +371,7 @@ describe('ExpenseInvitationActions consent transitions', () => {
   it('keeps the user in place and exposes an accessible error when consent persistence fails', async () => {
     mockRespondInvitation.mockResolvedValue({ ok: false, error: 'save_failed' })
     render(<ExpenseInvitationActions invitation={invitation()} />)
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Samþykkja boð' }))
-    })
-
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Samþykkja boð' })) })
     expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að vista. Reyndu aftur.')
     expect(mockPush).not.toHaveBeenCalled()
     expect(mockRefresh).not.toHaveBeenCalled()

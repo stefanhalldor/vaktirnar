@@ -84,8 +84,32 @@ function sharedList(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function dashboardProjection() {
+  return {
+    contract_version: 1,
+    status: 'ready',
+    rows: [{
+      presentation_key: '11111111111111111111111111111111',
+      presentation_state: 'private_draft',
+      title: 'Kvöldmatur',
+      total_minor: 12000,
+      currency: 'ISK',
+      href: `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${DRAFT_ID}`,
+      order: {
+        basis: 'visible_updated_at',
+        primary: '2026-08-26T09:30:00.000Z',
+        secondary: '2026-08-26T09:30:00.000Z',
+        tie_breaker: '11111111111111111111111111111111',
+      },
+      person_facets: [],
+      circle_facets: [],
+    }],
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  mockRpc.mockReset()
   mockFrom.mockImplementation((table: string) => {
     if (table === 'expense_group_members') {
       return {
@@ -113,28 +137,43 @@ beforeEach(() => {
 })
 
 describe('SQL159 repository boundaries', () => {
-  it('composes dashboard presentation per exact Expense rather than per group aggregate', () => {
+  it('uses SQL170 as the sole directory projection rather than composing lifecycle rows in the repository', () => {
     const source = readFileSync(join(process.cwd(), 'lib/expenses/repository.server.ts'), 'utf8')
-    expect(source).toContain('expensePresentations: deriveExpenseConfirmedPresentations({')
-    expect(source).toContain('expenses: group.expenses.map((expense) => ({')
-    expect(source).not.toContain('expenseIds: group.expenses.map((expense) => expense.id)')
+    expect(source).toContain("rpc('expense_list_dashboard_presentations_v1'")
+    expect(source).toContain('classifyExpenseDashboardPresentationResponse')
+    expect(source).not.toContain('deriveExpenseConfirmedPresentations')
+    expect(source).not.toContain('formatExpenseDashboardPresentationDiagnostic')
+    expect(source).not.toContain('[expenses] dashboard presentation diagnostic')
   })
 
-  it('resolves one exact actor-owned edit draft and rejects duplicate ambiguity', async () => {
+  it('resolves only an exact actor-owned bound edit draft', async () => {
     const editRow = {
       ...privateDraftRow(),
       context_type: 'edit',
       group_id: GROUP_ID,
       expense_id: EXPENSE_ID,
     }
-    mockRpc.mockResolvedValueOnce({ data: [editRow], error: null })
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        status: 'open',
+        mode: 'private',
+        owned_by_actor: true,
+        draft_id: DRAFT_ID,
+        draft_version: 4,
+        publication_version: null,
+      },
+      error: null,
+    })
       .mockResolvedValueOnce({ data: editRow, error: null })
 
     await expect(getCanonicalExpenseEditDraft(ACTOR_ID, GROUP_ID, EXPENSE_ID)).resolves.toEqual({
       status: 'single',
       draft: expect.objectContaining({ id: DRAFT_ID, groupId: GROUP_ID, expenseId: EXPENSE_ID }),
     })
-    expect(mockRpc).toHaveBeenNthCalledWith(1, 'expense_list_my_private_drafts', { p_actor_id: ACTOR_ID })
+    expect(mockRpc).toHaveBeenNthCalledWith(1, 'expense_get_edit_revision_state_v1', {
+      p_actor_id: ACTOR_ID,
+      p_expense_id: EXPENSE_ID,
+    })
     expect(mockRpc).toHaveBeenNthCalledWith(2, 'expense_get_private_draft', {
       p_actor_id: ACTOR_ID,
       p_draft_id: DRAFT_ID,
@@ -142,13 +181,23 @@ describe('SQL159 repository boundaries', () => {
 
     mockRpc.mockReset()
     mockRpc.mockResolvedValueOnce({
-      data: [editRow, { ...editRow, draft_id: '20000000-0000-4000-8000-000000000002' }],
+      data: {
+        status: 'open',
+        mode: 'private',
+        owned_by_actor: true,
+        draft_id: DRAFT_ID,
+        draft_version: 4,
+        publication_version: null,
+      },
+      error: null,
+    }).mockResolvedValueOnce({
+      data: { ...editRow, expense_id: '50000000-0000-4000-8000-000000000002' },
       error: null,
     })
     await expect(getCanonicalExpenseEditDraft(ACTOR_ID, GROUP_ID, EXPENSE_ID)).resolves.toEqual({
-      status: 'ambiguous',
+      status: 'unavailable',
     })
-    expect(mockRpc).toHaveBeenCalledTimes(1)
+    expect(mockRpc).toHaveBeenCalledTimes(2)
   })
 
   it('loads exact group shared drafts with only the server actor and group target', async () => {
@@ -248,6 +297,7 @@ describe('SQL159 repository boundaries', () => {
       data: { contract_version: 1, status: 'ready', draft: { publication_id: PUBLICATION_ID } },
       error: null,
     })
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'transport' } })
     await expect(getExpenseSharedDraftDetail(ACTOR_ID, PUBLICATION_ID)).resolves.toEqual({
       status: 'unavailable',
     })
@@ -304,43 +354,42 @@ describe('SQL159 repository boundaries', () => {
     })
   })
 
-  it('deduplicates an author live snapshot out of private drafts without touching active fields', async () => {
+  it('loads one authoritative dashboard projection while totals and invitations remain separate', async () => {
     mockRpc.mockImplementation(async (name: string) => {
       if (name === 'expense_get_my_member_invitations') return { data: [], error: null }
-      if (name === 'expense_list_my_private_drafts') return { data: [privateDraftRow()], error: null }
-      if (name === 'expense_list_visible_shared_drafts') return { data: sharedList(), error: null }
+      if (name === 'expense_list_dashboard_presentations_v1') return { data: dashboardProjection(), error: null }
       throw new Error(`unexpected_rpc:${name}`)
     })
 
     const dashboard = await getExpenseDashboard(ACTOR_ID)
-    expect(dashboard.privateDrafts).toEqual({ status: 'ready', items: [] })
-    expect(dashboard.sharedDrafts.status).toBe('ready')
-    if (dashboard.sharedDrafts.status === 'ready') {
-      expect(dashboard.sharedDrafts.items).toHaveLength(1)
-      expect(dashboard.sharedDrafts.items[0]?.authorDraft).toEqual({
-        contextType: 'one_off',
-        groupId: null,
-        expenseId: null,
-      })
+    expect(dashboard.dashboardPresentations).toMatchObject({ status: 'ready' })
+    if (dashboard.dashboardPresentations.status === 'ready') {
+      expect(dashboard.dashboardPresentations.rows).toHaveLength(1)
+      expect(dashboard.dashboardPresentations.rows[0]?.presentationState).toBe('private_draft')
     }
+    expect(dashboard.privateDrafts).toEqual({ status: 'ready', items: [] })
+    expect(dashboard.sharedDrafts).toEqual({ status: 'ready', items: [] })
     expect(dashboard.groups).toEqual([])
     expect(dashboard.oneOffs).toEqual([])
     expect(dashboard.totals).toEqual([])
+    expect(mockRpc).not.toHaveBeenCalledWith('expense_list_my_private_drafts', expect.anything())
+    expect(mockRpc).not.toHaveBeenCalledWith('expense_list_visible_shared_drafts', expect.anything())
+    expect(mockRpc).not.toHaveBeenCalledWith('expense_list_visible_edit_revisions_v1', expect.anything())
   })
 
-  it('keeps active data available while malformed shared data marks proposal sources unavailable', async () => {
+  it('fails the dashboard directory closed when the SQL170 call fails', async () => {
     mockRpc.mockImplementation(async (name: string) => {
       if (name === 'expense_get_my_member_invitations') return { data: [], error: null }
-      if (name === 'expense_list_my_private_drafts') return { data: [privateDraftRow()], error: null }
-      if (name === 'expense_list_visible_shared_drafts') {
-        return { data: sharedList({ unexpected: true }), error: null }
+      if (name === 'expense_list_dashboard_presentations_v1') {
+        return { data: null, error: { code: 'PGRST202' } }
       }
       throw new Error(`unexpected_rpc:${name}`)
     })
 
     const dashboard = await getExpenseDashboard(ACTOR_ID)
-    expect(dashboard.privateDrafts).toEqual({ status: 'unavailable', items: [] })
-    expect(dashboard.sharedDrafts).toEqual({ status: 'unavailable', items: [] })
+    expect(dashboard.dashboardPresentations).toEqual({ status: 'unavailable', rows: [] })
+    expect(dashboard.privateDrafts).toEqual({ status: 'ready', items: [] })
+    expect(dashboard.sharedDrafts).toEqual({ status: 'ready', items: [] })
     expect(dashboard.groups).toEqual([])
     expect(dashboard.oneOffs).toEqual([])
   })

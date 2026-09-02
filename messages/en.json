@@ -1348,18 +1348,32 @@
         "viewAriaLabel": "Choose which expense entries are shown",
         "views": {
           "all": "All",
-          "active": "Active",
+          "active": "In progress",
+          "closed": "Complete",
           "settled": "Settled",
           "cancelled": "Cancelled"
         },
-        "filterPeople": "Counterparties",
+        "filters": "Filter entries",
+        "filtersActive": "Filters active",
+        "filterPeople": "People",
+        "filterManualPeople": "Without email ({count})",
         "filterCircles": "Relationship circles",
         "clearFilters": "Clear filters",
         "noAll": "No confirmed entries.",
         "noActive": "No active entries.",
+        "noClosed": "No completed entries.",
         "noSettled": "No settled entries.",
         "noCancelled": "No cancelled entries.",
         "noFilterResults": "No entries match the filters.",
+        "noFilterMatches": "No entries match the filters.",
+        "entriesUnavailable": "We could not load the entries right now. Try again in a moment.",
+        "sections": {
+          "private_draft": "Drafts for me",
+          "shared_draft": "Drafts with others",
+          "confirmed": "Confirmed",
+          "settled": "Settled",
+          "cancelled": "Cancelled"
+        },
         "needsAttention": "Needs correction",
         "drafts": "Drafts",
         "privateDrafts": "Drafts for me",
@@ -1394,7 +1408,56 @@
         "empty": "No expenses have been added yet.",
         "expenseCount": "{count, plural, one {# expense} other {# expenses}}",
         "pendingCount": "{count, plural, one {# payment awaits confirmation} other {# payments await confirmation}}",
-        "settleAll": "Settle everything"
+        "settleAll": "Settle everything",
+        "guide": "Guide"
+      },
+      "guide": {
+        "title": "Guide",
+        "intro": "An expense moves through clear steps from a draft to settlement. Here is what happens at each step.",
+        "lifecycleTitle": "From draft to settlement",
+        "lifecycle": {
+          "draft": {
+            "title": "1. Draft",
+            "body": "A draft does not affect balances, debts or settlement.",
+            "private": "Drafts for me",
+            "shared": "Drafts with others · optional"
+          },
+          "confirmed": {
+            "title": "2. Confirmed expense",
+            "body": "Once the allocation is confirmed, the expense becomes active and appears in each participant's balance.",
+            "editBody": "If the expense is edited, it returns to drafts until the new allocation is confirmed."
+          },
+          "settlement": {
+            "title": "3. Settlement",
+            "body": "Only a confirmed expense with no open changes is included in settlement. Teskeið shows who pays whom."
+          },
+          "done": {
+            "title": "4. Done",
+            "body": "The expense is settled once the relevant payments have been confirmed."
+          }
+        },
+        "editTitle": "When a confirmed expense is edited",
+        "privateDraft": {
+          "title": "Drafts for me",
+          "body": "Only you can see the changes until you save them or choose to share the draft."
+        },
+        "sharedDraft": {
+          "title": "Drafts with others",
+          "body": "Others see the last version you shared. If you make changes, choose Share changes before saving the changes."
+        },
+        "editWhileOpen": "The last confirmed version remains in effect, but this expense cannot be settled while changes are open.",
+        "otherExpenses": "Other confirmed expenses that are ready can still be included in settlement.",
+        "exitTitle": "Two ways to finish editing",
+        "discard": {
+          "title": "Discard changes",
+          "body": "The draft is discarded and the previous confirmed version remains unchanged."
+        },
+        "save": {
+          "title": "Save changes",
+          "body": "The new allocation is confirmed and replaces the previous one."
+        },
+        "betaTitle": "Closed testing limitation",
+        "betaBody": "Some expenses connected to payment history cannot be moved back to drafts. The confirmed expense then remains unchanged."
       },
       "editState": {
         "ambiguousHeading": "More than one change is in progress for this expense.",
@@ -1607,9 +1670,12 @@
         "shareDraft": "Share draft",
         "shareDraftChanges": "Share changes",
         "sharingDraft": "Sharing draft...",
+        "sharingDraftChanges": "Sharing changes...",
         "unshareDraft": "Stop sharing",
         "unsharingDraft": "Stopping sharing...",
         "unshareDraftConfirmation": "Others will lose access to the draft. You will continue to see it under Drafts for me. Continue?",
+        "discardEditRevision": "Discard changes",
+        "discardEditRevisionConfirmation": "Discard these changes? The last confirmed allocation will stay unchanged.",
         "allocationConfirmationLegend": "Confirmation",
         "allocationConfirmation": "This allocation is correct",
         "allocationConfirmationHint": "Check this after reviewing and agreeing to the allocation.",
@@ -2181,6 +2247,7 @@
         "event_roster_changed": "The guest list has changed. Clear the event selection and select the guests again. Your other changes are preserved.",
         "save_failed": "Save failed. Please try again.",
         "load_failed": "The data could not be loaded.",
+        "revision_open": "This expense is being edited. Try again after the new allocation is confirmed.",
         "feature_disabled": "This Teskeið is not enabled for you.",
         "recipient_unavailable": "This email cannot receive an invitation yet. “Expenses and repayments” must first be enabled for the email in admin.",
         "delivery_failed": "The invitation was saved but delivery failed. Try sending it again.",
@@ -2192,6 +2259,29 @@
         "paymentTotal": "Payments must match the total.",
         "splitTotal": "The allocation must match the total."
       },
+      "editRevision": {
+        "openAction": "Move to drafts",
+        "choiceTitle": "How do you want to work on the changes?",
+        "choiceBody": "The last confirmed allocation remains in effect until you confirm the new allocation.",
+        "privateChoice": "Draft for me",
+        "sharedChoice": "Draft with others",
+        "cancelChoice": "Cancel",
+        "paymentWarning": "Earlier payments and history stay unchanged. A new allocation may change what remains to be settled.",
+        "openTitle": "Allocation being edited",
+        "openBody": "The last confirmed allocation remains visible, but the expense cannot be settled until the new allocation is confirmed.",
+        "continueAction": "Continue editing",
+        "settlementLockedTitle": "Allocation being edited",
+        "settlementLockedBody": "The expense cannot be settled until the new allocation is confirmed.",
+        "unavailable": "We could not verify the edit state. Reload the page before continuing.",
+        "cannotOpen": "This expense cannot be moved to drafts. Its earlier settlement or current state must remain unchanged.",
+        "opening": "Moving to drafts...",
+        "legacyTitle": "These drafts are from an older version",
+        "legacyBody": "These changes cannot be continued. The confirmed expense is unchanged. Remove the old drafts, then choose “Move to drafts” on the expense to start again.",
+        "legacyReassurance": "No amounts, payments or allocations will change.",
+        "legacyDiscardAction": "Remove old drafts",
+        "legacyDiscardPending": "Removing old drafts...",
+        "legacyDiscardConfirmation": "Remove these old drafts? No amounts, payments or allocations will change."
+      },
       "editErrors": {
         "invalid_input": "The allocation does not add up. Review the amounts and participants, then try again.",
         "referenced_participant": "One participant cannot be removed because related history or an invitation must be preserved. Keep the participant in the allocation and try again.",
@@ -2200,7 +2290,8 @@
         "conflict": "The expense has changed since you opened it. Reload the page and try again.",
         "feature_disabled": "This change cannot be saved right now. Go back and reload the expense.",
         "save_failed": "The change could not be saved. Review the allocation and try again.",
-        "save_outcome_unknown": "We could not confirm the save result. Do not save again yet. Reload the expense and check its current state first."
+        "save_outcome_unknown": "We could not confirm the save result. Do not save again yet. Reload the expense and check its current state first.",
+        "legacy_edit_draft_unbound": "These drafts are from an older version and cannot be saved. Return to the confirmed expense and start the change again."
       }
     },
     "bookkeeping": {

@@ -34,6 +34,8 @@ export type ExpenseActionErrorCode =
   | 'save_failed'
   | 'save_outcome_unknown'
   | 'load_failed'
+  | 'revision_open'
+  | 'legacy_edit_draft_unbound'
 
 export type ExpenseActionResult<T = undefined> =
   | ({ ok: true } & (T extends undefined ? object : { data: T }))
@@ -252,6 +254,8 @@ export interface ExpenseGroupView {
   balances: ExpenseBalanceView[]
   settlementTransfers: ExpenseSettlementTransferView[]
   settlementRequiresReview: boolean
+  /** False when the server-authoritative eligible settlement projection is unavailable. */
+  settlementEligibilityReady?: boolean
   /** A recognition dispute exists; ledger stays canonical but settlement blocks. */
   claimReviewRequired?: boolean
   /** False while the additive SQL migration is not installed. */
@@ -260,7 +264,32 @@ export interface ExpenseGroupView {
   guestMemberRenameReady?: boolean
   repayments: ExpenseRepaymentView[]
   activity: ExpenseActivityView[]
+  /** Server-derived TES-24 lock. Unavailable is fail-closed in settlement UI. */
+  editRevisionState?: 'none' | 'open' | 'unavailable'
 }
+
+export type ExpenseEditRevisionMode = 'private' | 'shared'
+
+export type ExpenseEditRevisionStateView =
+  | {
+      status: 'none'
+      canOpen: boolean
+      openReason: 'clean' | 'history' | 'lifecycle' | 'unavailable'
+    }
+  | {
+      status: 'open'
+      mode: ExpenseEditRevisionMode
+      ownedByActor: boolean
+      draftId: string | null
+      draftVersion: number | null
+      publicationVersion: number | null
+    }
+  | { status: 'unavailable' }
+
+export type ExpenseLegacyEditDraftStateView =
+  | { status: 'none' }
+  | { status: 'legacy_unbound'; draftId: string; draftVersion: number }
+  | { status: 'legacy_ambiguous' | 'unavailable' }
 
 export interface ExpenseDashboardView {
   groups: ExpenseGroupSummaryView[]
@@ -275,6 +304,7 @@ export interface ExpenseDashboardView {
   pendingConfirmationCount: number
   /** True when the signed-in user's still-unreserved debt has a settlement context. */
   hasPayAllItems: boolean
+  dashboardPresentations: import('./dashboard-presentations').ExpenseDashboardPresentationResult
   privateDrafts: ExpenseDashboardPrivateDraftSourceView
   sharedDrafts: ExpenseDashboardSharedDraftSourceView
 }
@@ -524,7 +554,12 @@ export interface ExpenseMemberInvitationPreviewView extends ExpenseMemberInvitat
 }
 
 export type ExpenseItemLookupResult =
-  | { status: 'ok'; group: ExpenseGroupView; expense: ExpenseItemView }
+  | {
+      status: 'ok'
+      group: ExpenseGroupView
+      expense: ExpenseItemView
+      editRevisionState: ExpenseEditRevisionStateView
+    }
   | { status: 'not_found' }
   | { status: 'forbidden' }
 
@@ -557,7 +592,7 @@ export interface ExpenseConfirmedPresentationView {
 
 export type ExpenseConfirmedPresentationState =
   | { status: 'confirmed' }
-  | { status: 'editing'; draftId: string; expenseId: string }
+  | { status: 'editing'; draftId: string | null; expenseId: string }
   | {
       status: 'ambiguous'
       reason: 'duplicate_same_expense'

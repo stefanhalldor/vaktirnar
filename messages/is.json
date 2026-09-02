@@ -1349,21 +1349,35 @@
         "paymentProfile": "Greiðsluleiðin þín",
         "noPaymentProfile": "Engin greiðsluleið hefur verið skráð.",
         "entries": "Færslur",
-        "viewAriaLabel": "Veldu hvaða UL-færslur sjást",
+        "viewAriaLabel": "Veldu hvaða færslur sjást",
         "views": {
           "all": "Allt",
-          "active": "Virkt",
+          "active": "Í gangi",
+          "closed": "Lokið",
           "settled": "Uppgert",
           "cancelled": "Fellt niður"
         },
-        "filterPeople": "Mótaðilar",
+        "filters": "Sía færslur",
+        "filtersActive": "Sía virk",
+        "filterPeople": "Fólk",
+        "filterManualPeople": "Án netfangs ({count})",
         "filterCircles": "Tengslahringir",
         "clearFilters": "Hreinsa síur",
         "noAll": "Engar staðfestar færslur.",
         "noActive": "Engar virkar færslur.",
+        "noClosed": "Engar lokaðar færslur.",
         "noSettled": "Engar uppgerðar færslur.",
         "noCancelled": "Engar niðurfelldar færslur.",
         "noFilterResults": "Engar færslur passa við síurnar.",
+        "noFilterMatches": "Engar færslur passa við síurnar.",
+        "entriesUnavailable": "Ekki tókst að sækja færslurnar núna. Reyndu aftur eftir augnablik.",
+        "sections": {
+          "private_draft": "Drög fyrir mig",
+          "shared_draft": "Drög með öðrum",
+          "confirmed": "Staðfest",
+          "settled": "Uppgert",
+          "cancelled": "Fellt niður"
+        },
         "needsAttention": "Þarfnast lagfæringar",
         "drafts": "Drög",
         "privateDrafts": "Drög fyrir mig",
@@ -1398,7 +1412,56 @@
         "empty": "Engin útgjöld hafa verið skráð enn.",
         "expenseCount": "{count, plural, one {# útgjald} other {# útgjöld}}",
         "pendingCount": "{count, plural, one {# greiðsla bíður staðfestingar} other {# greiðslur bíða staðfestingar}}",
-        "settleAll": "Gera allt upp"
+        "settleAll": "Gera allt upp",
+        "guide": "Leiðbeiningar"
+      },
+      "guide": {
+        "title": "Leiðbeiningar",
+        "intro": "Kostnaður fer í gegnum skýr skref frá drögum að uppgjöri. Hér sérðu hvað gerist í hverju skrefi.",
+        "lifecycleTitle": "Frá drögum í uppgjör",
+        "lifecycle": {
+          "draft": {
+            "title": "1. Drög",
+            "body": "Drög hafa ekki áhrif á stöðu, skuldir eða uppgjör.",
+            "private": "Drög fyrir mig",
+            "shared": "Drög með öðrum · valfrjálst"
+          },
+          "confirmed": {
+            "title": "2. Staðfestur kostnaður",
+            "body": "Þegar skiptingin er staðfest verður kostnaðurinn virkur og birtist í stöðum þeirra sem taka þátt.",
+            "editBody": "Ef kostnaðinum er breytt fer hann aftur í drög þar til ný skipting er staðfest."
+          },
+          "settlement": {
+            "title": "3. Uppgjör",
+            "body": "Aðeins staðfestur kostnaður án opinna breytinga fer í uppgjör. Teskeið sýnir hver greiðir hverjum."
+          },
+          "done": {
+            "title": "4. Lokið",
+            "body": "Kostnaðurinn er uppgerður þegar viðeigandi greiðslur hafa verið staðfestar."
+          }
+        },
+        "editTitle": "Þegar staðfestum kostnaði er breytt",
+        "privateDraft": {
+          "title": "Drög fyrir mig",
+          "body": "Aðeins þú sérð breytingarnar þar til þú vistar þær eða velur að deila drögunum."
+        },
+        "sharedDraft": {
+          "title": "Drög með öðrum",
+          "body": "Aðrir sjá síðustu útgáfuna sem var deilt. Ef þú breytir henni skaltu velja Deila breytingum áður en þú vistar breytingarnar."
+        },
+        "editWhileOpen": "Síðasta staðfesta staðan gildir áfram, en ekki er hægt að gera upp þennan kostnað meðan breytingin er opin.",
+        "otherExpenses": "Aðrir staðfestir kostnaðir sem eru tilbúnir geta áfram farið í uppgjör.",
+        "exitTitle": "Tvær leiðir út úr breytingum",
+        "discard": {
+          "title": "Hætta við breytingar",
+          "body": "Drögunum er hent og gamla staðfesta útgáfan stendur óbreytt."
+        },
+        "save": {
+          "title": "Vista breytingar",
+          "body": "Nýja skiptingin er staðfest og tekur við af þeirri gömlu."
+        },
+        "betaTitle": "Takmörkun í lokaðri prufu",
+        "betaBody": "Sumir kostnaðir sem tengjast greiðslusögu geta ekki farið aftur í drög. Þá helst staðfesti kostnaðurinn óbreyttur."
       },
       "editState": {
         "ambiguousHeading": "Fleiri en ein breyting er í vinnslu fyrir þennan kostnað.",
@@ -1611,9 +1674,12 @@
         "shareDraft": "Deila drögum",
         "shareDraftChanges": "Deila breytingum",
         "sharingDraft": "Deili drögum...",
+        "sharingDraftChanges": "Deili breytingum...",
         "unshareDraft": "Hætta að deila",
         "unsharingDraft": "Hætti að deila...",
         "unshareDraftConfirmation": "Aðrir missa aðgang að drögunum. Þú heldur áfram að sjá þau sem Drög fyrir mig. Viltu halda áfram?",
+        "discardEditRevision": "Hætta við breytingar",
+        "discardEditRevisionConfirmation": "Viltu hætta við breytingarnar? Síðasta staðfesta skiptingin helst óbreytt.",
         "allocationConfirmationLegend": "Staðfesting",
         "allocationConfirmation": "Þetta er rétt skipting",
         "allocationConfirmationHint": "Hakaðu hér þegar þú hefur farið yfir skiptinguna og samþykkir hana.",
@@ -2185,6 +2251,7 @@
         "event_roster_changed": "Gestalistinn hefur breyst. Hreinsaðu viðburðarvalið og veldu gestina aftur. Aðrar breytingar haldast.",
         "save_failed": "Ekki tókst að vista. Reyndu aftur.",
         "load_failed": "Ekki tókst að sækja gögnin.",
+        "revision_open": "Kostnaðurinn er í breytingu. Prófaðu aftur þegar ný skipting hefur verið staðfest.",
         "feature_disabled": "Þessi Teskeið er ekki virk fyrir þig.",
         "recipient_unavailable": "Ekki er hægt að senda boð á þetta netfang enn. Virkja þarf „Útlagt og endurgreitt“ fyrir netfangið í admin fyrst.",
         "delivery_failed": "Boðið var vistað en sending tókst ekki. Reyndu að senda aftur.",
@@ -2196,6 +2263,29 @@
         "paymentTotal": "Greiðslurnar þurfa að stemma við heildarupphæðina.",
         "splitTotal": "Skiptingin þarf að stemma við heildarupphæðina."
       },
+      "editRevision": {
+        "openAction": "Færa í drög",
+        "choiceTitle": "Hvernig viltu vinna breytingarnar?",
+        "choiceBody": "Síðasta staðfesta skiptingin gildir áfram þar til þú staðfestir nýju skiptinguna.",
+        "privateChoice": "Drög fyrir mig",
+        "sharedChoice": "Drög með öðrum",
+        "cancelChoice": "Hætta við",
+        "paymentWarning": "Fyrri greiðslur og saga haldast óbreytt. Ný skipting getur breytt því sem er eftir að gera upp.",
+        "openTitle": "Skipting í breytingu",
+        "openBody": "Síðasta staðfesta skiptingin sést áfram, en ekki er hægt að gera kostnaðinn upp fyrr en ný skipting hefur verið staðfest.",
+        "continueAction": "Halda áfram með breytingar",
+        "settlementLockedTitle": "Skipting í breytingu",
+        "settlementLockedBody": "Ekki er hægt að gera kostnaðinn upp fyrr en ný skipting hefur verið staðfest.",
+        "unavailable": "Ekki tókst að staðfesta breytingastöðuna núna. Endurhladdu síðuna áður en þú heldur áfram.",
+        "cannotOpen": "Ekki er hægt að færa þennan kostnað í drög. Fyrra uppgjör eða staða kostnaðarins þarf að haldast óbreytt.",
+        "opening": "Færi í drög...",
+        "legacyTitle": "Þessi drög eru úr eldri útgáfu",
+        "legacyBody": "Ekki er hægt að halda áfram með þessar breytingar. Staðfesti kostnaðurinn er óbreyttur. Fjarlægðu gömlu drögin og veldu síðan „Færa í drög“ á kostnaðinum til að byrja breytinguna aftur.",
+        "legacyReassurance": "Engar upphæðir, greiðslur eða skiptingar breytast við þetta.",
+        "legacyDiscardAction": "Fjarlægja gömlu drögin",
+        "legacyDiscardPending": "Fjarlægi gömlu drögin...",
+        "legacyDiscardConfirmation": "Fjarlægja þessi gömlu drög? Engar upphæðir, greiðslur eða skiptingar breytast við þetta."
+      },
       "editErrors": {
         "invalid_input": "Skiptingin gengur ekki upp. Farðu yfir upphæðir og þátttakendur og reyndu aftur.",
         "referenced_participant": "Ekki er hægt að fjarlægja einn þátttakanda vegna tengdrar sögu eða boðs. Haltu þátttakandanum inni í skiptingunni og reyndu aftur.",
@@ -2204,7 +2294,8 @@
         "conflict": "Kostnaðurinn hefur breyst síðan þú opnaðir hann. Endurhladdu síðuna og reyndu aftur.",
         "feature_disabled": "Ekki er hægt að vista breytinguna núna. Farðu til baka og endurhladdu kostnaðinn.",
         "save_failed": "Ekki tókst að vista breytinguna. Farðu yfir skiptinguna og reyndu aftur.",
-        "save_outcome_unknown": "Ekki tókst að staðfesta niðurstöðu vistunar. Ekki vista aftur strax. Endurhladdu kostnaðinn og athugaðu stöðuna fyrst."
+        "save_outcome_unknown": "Ekki tókst að staðfesta niðurstöðu vistunar. Ekki vista aftur strax. Endurhladdu kostnaðinn og athugaðu stöðuna fyrst.",
+        "legacy_edit_draft_unbound": "Þessi drög eru úr eldri útgáfu og ekki er hægt að vista þau. Farðu til baka í staðfesta kostnaðinn og byrjaðu breytinguna aftur."
       }
     },
     "bookkeeping": {
