@@ -176,6 +176,8 @@ export const CreateExpenseSchema = z.object({
 export const UpdateExpenseSchema = z.object({
   request_id: requestId,
   draft_id: uuid.nullable().optional().transform((v) => v ?? null),
+  expected_draft_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable().optional().transform((v) => v ?? null),
+  expected_publication_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable().optional().transform((v) => v ?? null),
   expense_id: uuid,
   expected_financial_version: z.number().int().nonnegative(),
   title: z.string().trim().min(1).max(200),
@@ -352,6 +354,27 @@ export const TransitionExpenseRepaymentSchema = z.object({
   action: z.enum(['confirm', 'reject', 'cancel']),
   request_id: requestId,
 })
+
+export const OpenExpenseEditRevisionSchema = z.object({
+  request_id: requestId,
+  expense_id: uuid,
+  mode: z.enum(['private', 'shared']),
+}).strict()
+
+export const DiscardExpenseEditRevisionSchema = z.object({
+  request_id: requestId,
+  expense_id: uuid,
+  draft_id: uuid,
+  expected_draft_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  expected_publication_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
+}).strict()
+
+export const DiscardLegacyExpenseEditDraftSchema = z.object({
+  request_id: requestId,
+  expense_id: uuid,
+  draft_id: uuid,
+  expected_draft_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+}).strict()
 
 export const AttachExpenseToEventSchema = z.object({
   expense_id: uuid,

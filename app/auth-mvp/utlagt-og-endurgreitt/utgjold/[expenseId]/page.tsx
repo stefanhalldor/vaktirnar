@@ -140,6 +140,7 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
         eventLinkManagementUnavailable={eventLinkManagementUnavailable}
         eventIdentityCandidates={eventIdentityCandidates}
         relationshipIdentityManagementState={relationshipIdentityManagementState}
+        revisionState={result.editRevisionState}
       />
     </ExpenseShell>
   )

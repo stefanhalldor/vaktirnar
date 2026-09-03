@@ -18,6 +18,7 @@ function bytes(path: string): Buffer {
 const migration = read(migrationPath)
 const preflight = read(`${validationRoot}/preflight.sql`)
 const diagnostic = read(`${validationRoot}/diagnose-preflight.sql`)
+const lineageDiagnostic = read(`${validationRoot}/diagnose-exact-draft-lineage.sql`)
 const postflight = read(`${validationRoot}/postflight.sql`)
 const recovery = read(`${validationRoot}/recovery.sql`)
 const readme = read(`${validationRoot}/README.md`)
@@ -879,6 +880,23 @@ describe('SQL159 unconfirmed Expense publication and finalization', () => {
     expect(readme).toContain('SQL159 finalization result → exact canonical')
     expect(readme).toContain('No SQL in this package was run by Codex')
     expect(readme).toContain('## Localhost checks for Stebbi')
+  })
+
+  it('keeps the exact draft-lineage diagnostic read-only and privacy-safe', () => {
+    expect(lineageDiagnostic).toMatch(/BEGIN TRANSACTION READ ONLY/i)
+    expect(lineageDiagnostic).toMatch(/ROLLBACK\s*;/i)
+    expect(lineageDiagnostic).toContain("SELECT 'D1'")
+    expect(lineageDiagnostic).toContain("SELECT 'D2'")
+    expect(lineageDiagnostic).toContain('e_id')
+    expect(lineageDiagnostic).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE|CREATE|ALTER|DROP)\b/i)
+    expect(lineageDiagnostic).not.toMatch(/'(?:payload|title|note|display_name|email|event_name)'/i)
+    expect(readme).toContain('diagnose-exact-draft-lineage.sql')
+    expect(lineageDiagnostic.match(/operator_input\(/g)).toHaveLength(1)
+    expect(lineageDiagnostic).toContain('expense_sql159_normalize_private_draft')
+    expect(lineageDiagnostic).toContain('party_identity_digest')
+    expect(lineageDiagnostic).toContain('same_party_identities')
+    expect(lineageDiagnostic).toContain('same_allocation_fingerprint')
+    expect(lineageDiagnostic).toContain('multiple_canonical_lineages_require_audit')
   })
 
   it('keeps all declared PostgreSQL identifiers within 63 UTF-8 bytes', () => {

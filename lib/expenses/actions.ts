@@ -35,6 +35,9 @@ import {
   LeaveExpenseGroupSchema,
   LinkExpenseGuestMemberSchema,
   RemoveExpenseGroupMemberSchema,
+  OpenExpenseEditRevisionSchema,
+  DiscardExpenseEditRevisionSchema,
+  DiscardLegacyExpenseEditDraftSchema,
   RecordExpenseRepaymentReceivedSchema,
   RenameExpenseGuestMemberSchema,
   ProposeExpenseSettlementBatchSchema,
@@ -55,10 +58,12 @@ import {
   parseExpenseAmountToMinor,
   parseExpensePercentageToBasisPoints,
   parseExpenseWeight,
+  formatExpenseMinorForCopy,
 } from './input-money'
 import { ExpenseDomainError } from './domain-error'
 import {
   redactExpenseDraftEventGuestLabels,
+  ExpenseDraftPayloadSchema,
   SaveExpenseDraftSchema,
   type ExpenseDraftPayload,
 } from './drafts'
@@ -97,6 +102,7 @@ import {
 } from './unconfirmed-publication'
 import {
   getExpenseDraftPublicationLifecycle,
+  getExpenseItemView,
   getExpensePrivateDraft,
   setExpenseDraftEventRelationV1,
 } from './repository.server'
@@ -124,7 +130,9 @@ function actionError(error: unknown): ExpenseActionResult<never> {
   }
   const message = error instanceof Error ? error.message.toLowerCase() : ''
   const code: ExpenseActionErrorCode =
-    message.includes('expense_share_has_durable_reference') ? 'referenced_participant'
+    message.includes('expense_legacy_edit_draft_unbound') ? 'legacy_edit_draft_unbound'
+      : message.includes('expense_edit_revision_open') ? 'revision_open'
+      : message.includes('expense_share_has_durable_reference') ? 'referenced_participant'
       : message.includes('recipient_unavailable') ? 'recipient_unavailable'
       : (message.includes('teskeid_event_revision_conflict')
         || message.includes('teskeid_event_roster_conflict')
@@ -574,7 +582,12 @@ export async function shareExpenseDraft(
     const parsed = ShareExpenseDraftSchema.safeParse(input)
     if (!parsed.success) return { ok: false, error: 'invalid_input' }
     const value = parsed.data
-    const { data, error } = await getAdmin().rpc('expense_share_private_draft', {
+    const draft = await getExpensePrivateDraft(user.id, value.draft_id)
+    if (!draft) throw new Error('expense_unconfirmed_not_found')
+    const { data, error } = await getAdmin().rpc(
+      draft.contextType === 'edit'
+        ? 'expense_share_edit_revision_v1'
+        : 'expense_share_private_draft', {
       p_actor_id: user.id,
       p_request_id: value.request_id,
       p_draft_id: value.draft_id,
@@ -619,7 +632,12 @@ export async function unshareExpenseDraft(
     const parsed = UnshareExpenseDraftSchema.safeParse(input)
     if (!parsed.success) return { ok: false, error: 'invalid_input' }
     const value = parsed.data
-    const { data, error } = await getAdmin().rpc('expense_unshare_private_draft', {
+    const draft = await getExpensePrivateDraft(user.id, value.draft_id)
+    if (!draft) throw new Error('expense_unconfirmed_not_found')
+    const { data, error } = await getAdmin().rpc(
+      draft.contextType === 'edit'
+        ? 'expense_unshare_edit_revision_v1'
+        : 'expense_unshare_private_draft', {
       p_actor_id: user.id,
       p_request_id: value.request_id,
       p_draft_id: value.draft_id,
@@ -768,6 +786,18 @@ function taggedExpenseMemberId(
   hex[16] = '8'
   const value = hex.join('')
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`
+}
+
+function expenseEditRevisionDraftId(
+  actorUserId: string,
+  requestId: string,
+  expenseId: string,
+): string {
+  return taggedExpenseMemberId(
+    actorUserId,
+    requestId,
+    `expense-edit-revision-v1:${expenseId}`,
+  )
 }
 
 export async function createExpense(
@@ -1301,6 +1331,179 @@ export async function disputeExpenseClaim(
   }
 }
 
+export async function openExpenseEditRevision(
+  input: unknown,
+): Promise<ExpenseActionResult<{
+  expenseId: string
+  groupId: string
+  draftId: string
+  draftVersion: number
+  publicationVersion: number | null
+}>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = OpenExpenseEditRevisionSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const view = await getExpenseItemView(user.id, parsed.data.expense_id)
+    if (!view) throw new Error('expense_not_found')
+    const { expense, group } = view
+    if (expense.status !== 'active'
+      || group.status === 'closed'
+      || (!expense.createdBySelf && !group.canManage)) {
+      throw new Error('expense_not_allowed')
+    }
+    const referenced = new Set([
+      ...expense.payments.map((payment) => payment.memberId),
+      ...expense.shares.map((share) => share.memberId),
+    ])
+    const members = group.members.filter((member) => (
+      member.status === 'active' || referenced.has(member.id)
+    ))
+    const payload: ExpenseDraftPayload = {
+      circleId: null,
+      eventId: null,
+      eventRosterRevision: null,
+      linkToEvent: false,
+      eventVisibility: 'participants_only',
+      members: members.map((member) => ({
+        key: member.id,
+        label: member.displayName,
+        isSelf: member.isSelf,
+        included: expense.shares.some((share) => share.memberId === member.id),
+      })),
+      removedMemberIds: [],
+      included: Object.fromEntries(members.map((member) => [
+        member.id,
+        expense.shares.some((share) => share.memberId === member.id),
+      ])),
+      title: expense.title,
+      total: formatExpenseMinorForCopy(expense.totalMinor, expense.currency),
+      currency: expense.currency as ExpenseDraftPayload['currency'],
+      incurredOn: expense.incurredOn,
+      category: expense.category ?? '',
+      note: expense.note ?? '',
+      splitMethod: 'fixed',
+      payments: Object.fromEntries(expense.payments.map((payment) => [
+        payment.memberId,
+        formatExpenseMinorForCopy(payment.amountMinor, expense.currency),
+      ])),
+      payerKeys: expense.payments.map((payment) => payment.memberId),
+      amounts: Object.fromEntries(expense.shares.map((share) => [
+        share.memberId,
+        formatExpenseMinorForCopy(share.amountMinor, expense.currency),
+      ])),
+      percentages: {},
+      weights: {},
+      preserveShares: false,
+    }
+    const payloadCheck = ExpenseDraftPayloadSchema.safeParse(payload)
+    if (!payloadCheck.success) throw new Error('expense_edit_revision_seed_invalid')
+    const draftId = expenseEditRevisionDraftId(
+      user.id,
+      parsed.data.request_id,
+      expense.id,
+    )
+    const { data, error } = await getAdmin().rpc('expense_open_edit_revision_v1', {
+      p_actor_id: user.id,
+      p_request_id: parsed.data.request_id,
+      p_expense_id: expense.id,
+      p_mode: parsed.data.mode,
+      p_draft_id: draftId,
+      p_payload: redactExpenseDraftEventGuestLabels(payloadCheck.data),
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const persistedDraftId = String(result.draft_id ?? '')
+    const draftVersion = Number(result.draft_version)
+    const publicationVersion = result.publication_version === null
+      ? null
+      : Number(result.publication_version)
+    if (result.expense_id !== expense.id
+      || result.group_id !== group.id
+      || persistedDraftId !== draftId
+      || !Number.isSafeInteger(draftVersion) || draftVersion < 1
+      || (publicationVersion !== null
+        && (!Number.isSafeInteger(publicationVersion) || publicationVersion < 1))) {
+      throw new Error('expense_edit_revision_result_invalid')
+    }
+    revalidateExpensePaths(group.id, expense.id)
+    return {
+      ok: true,
+      data: {
+        expenseId: expense.id,
+        groupId: group.id,
+        draftId: persistedDraftId,
+        draftVersion,
+        publicationVersion,
+      },
+    }
+  } catch (error) {
+    console.error('[expenses] open edit revision failed', safeExpenseFailureDiagnostic(error))
+    return actionError(error)
+  }
+}
+
+export async function discardExpenseEditRevision(
+  input: unknown,
+): Promise<ExpenseActionResult<{ expenseId: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = DiscardExpenseEditRevisionSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const { data, error } = await getAdmin().rpc('expense_discard_edit_revision_v1', {
+      p_actor_id: user.id,
+      p_request_id: parsed.data.request_id,
+      p_expense_id: parsed.data.expense_id,
+      p_draft_id: parsed.data.draft_id,
+      p_expected_draft_version: parsed.data.expected_draft_version,
+      p_expected_publication_version: parsed.data.expected_publication_version,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    if (result.state !== 'discarded' || result.expense_id !== parsed.data.expense_id) {
+      throw new Error('expense_edit_revision_result_invalid')
+    }
+    revalidateExpensePaths(
+      typeof result.group_id === 'string' ? result.group_id : undefined,
+      parsed.data.expense_id,
+    )
+    return { ok: true, data: { expenseId: parsed.data.expense_id } }
+  } catch (error) {
+    console.error('[expenses] discard edit revision failed', safeExpenseFailureDiagnostic(error))
+    return actionError(error)
+  }
+}
+
+export async function discardLegacyExpenseEditDraft(
+  input: unknown,
+): Promise<ExpenseActionResult<{ expenseId: string }>> {
+  const { user } = await guardExpenseAccess()
+  try {
+    const parsed = DiscardLegacyExpenseEditDraftSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    const { data, error } = await getAdmin().rpc('expense_discard_legacy_edit_draft_v1', {
+      p_actor_id: user.id,
+      p_request_id: parsed.data.request_id,
+      p_expense_id: parsed.data.expense_id,
+      p_draft_id: parsed.data.draft_id,
+      p_expected_draft_version: parsed.data.expected_draft_version,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    if (result.state !== 'legacy_discarded' || result.expense_id !== parsed.data.expense_id) {
+      throw new Error('expense_legacy_edit_draft_unbound')
+    }
+    revalidateExpensePaths(
+      typeof result.group_id === 'string' ? result.group_id : undefined,
+      parsed.data.expense_id,
+    )
+    return { ok: true, data: { expenseId: parsed.data.expense_id } }
+  } catch (error) {
+    console.error('[expenses] discard legacy edit draft failed', safeExpenseFailureDiagnostic(error))
+    return actionError(error)
+  }
+}
+
 export async function updateExpense(
   input: unknown,
 ): Promise<ExpenseActionResult<{ groupId: string; expenseId: string; financialVersion: number }>> {
@@ -1452,6 +1655,174 @@ export async function updateExpense(
       && mapped.error === 'save_failed'
       && (!(error instanceof ExpenseRpcError) || error.sqlState === 'unknown')
     ) {
+      return { ok: false, error: 'save_outcome_unknown' }
+    }
+    return mapped
+  }
+}
+
+export async function reconfirmExpenseEditRevision(
+  input: unknown,
+): Promise<ExpenseActionResult<{
+  groupId: string
+  expenseId: string
+  financialVersion: number
+  unchanged: boolean
+}>> {
+  const { user } = await guardExpenseAccess()
+  let financialRpcAttempted = false
+  try {
+    const parsed = UpdateExpenseSchema.safeParse(input)
+    if (!parsed.success
+      || parsed.data.draft_id === null
+      || parsed.data.expected_draft_version === null) {
+      return { ok: false, error: 'invalid_input' }
+    }
+    const value = parsed.data
+    const admin = getAdmin()
+    const { data: expenseLocator, error: locatorError } = await admin
+      .from('expenses')
+      .select('group_id')
+      .eq('id', value.expense_id)
+      .maybeSingle()
+    if (locatorError) rpcError(locatorError)
+    const groupId = typeof expenseLocator?.group_id === 'string' ? expenseLocator.group_id : ''
+    if (!groupId) throw new Error('expense_not_found')
+
+    const persisted = await getExpenseEditMembersForActor(user.id, groupId, value.expense_id)
+    const members: ResolvedExpenseMember[] = [
+      ...persisted.map((member) => ({
+        id: member.id,
+        key: member.id,
+        userId: member.userId,
+        displayName: member.displayName,
+        role: member.role === 'owner' ? 'owner' as const : 'member' as const,
+        status: 'active' as const,
+      })),
+      ...value.new_members.map((member) => ({
+        id: member.id,
+        key: member.id,
+        userId: null,
+        displayName: member.display_name,
+        role: 'member' as const,
+        status: 'active' as const,
+      })),
+    ]
+    const membersByKey = mapMembersByKey(members)
+    if (membersByKey.size !== members.length) throw new Error('expense_member_invalid')
+    const totalMinor = parseExpenseAmountToMinor(value.total, value.currency)
+    const payments = value.payments.map((payment) => ({
+      payerId: requireMember(membersByKey, payment.member_key).id,
+      amountMinor: parseExpenseAmountToMinor(payment.amount, value.currency),
+    }))
+    const sharesByKey = value.preserve_shares ? [] : (() => {
+      if (value.split_method === 'equal') {
+        return splitEqual(totalMinor, value.currency, value.allocations.map((allocation) => (
+          requireMemberKey(membersByKey, allocation.member_key)
+        )))
+      }
+      if (value.split_method === 'percentage') {
+        return splitByPercentage(totalMinor, value.currency, value.allocations.map((allocation) => ({
+          participantId: requireMemberKey(membersByKey, allocation.member_key),
+          basisPoints: parseExpensePercentageToBasisPoints(allocation.percentage ?? ''),
+        })))
+      }
+      if (value.split_method === 'weighted') {
+        return splitByWeights(totalMinor, value.currency, value.allocations.map((allocation) => ({
+          participantId: requireMemberKey(membersByKey, allocation.member_key),
+          weight: parseExpenseWeight(allocation.weight ?? ''),
+        })))
+      }
+      if (value.split_method === 'fixed') {
+        return splitByFixedAmounts(totalMinor, value.currency, value.allocations.map((allocation) => ({
+          participantId: requireMemberKey(membersByKey, allocation.member_key),
+          amountMinor: parseExpenseAmountToMinor(
+            allocation.amount ?? '', value.currency, { allowZero: true },
+          ),
+        })))
+      }
+      if (value.split_method === 'mixed_equal_remainder') {
+        return splitMixedEqualRemainder(totalMinor, value.currency, value.allocations.map((allocation) => ({
+          participantId: requireMemberKey(membersByKey, allocation.member_key),
+          fixedMinor: parseExpenseAmountToMinor(
+            allocation.amount ?? '0', value.currency, { allowZero: true },
+          ),
+          participatesInRemainder: allocation.participates_in_remainder === true,
+        })))
+      }
+      return splitMixedPercentageRemainder(totalMinor, value.currency, value.allocations.map((allocation) => ({
+        participantId: requireMemberKey(membersByKey, allocation.member_key),
+        fixedMinor: parseExpenseAmountToMinor(
+          allocation.amount ?? '0', value.currency, { allowZero: true },
+        ),
+        remainderBasisPoints: parseExpensePercentageToBasisPoints(allocation.percentage ?? ''),
+      })))
+    })()
+    const shares = sharesByKey.map((share) => ({
+      member_id: requireMember(membersByKey, share.participantId).id,
+      amount_minor: share.amountMinor,
+    }))
+    const canonicalProposal = {
+      title: value.title,
+      total_minor: totalMinor,
+      currency: value.currency,
+      incurred_on: value.incurred_on,
+      category: value.category,
+      note: value.note,
+      split_method: value.split_method,
+      preserve_shares: value.preserve_shares,
+      new_guest_members: value.new_members.map(({ id, display_name }) => ({ id, display_name })),
+      new_participant_invitations: value.new_members.flatMap<ExpenseParticipantInvitationInput>((member) => {
+        if (member.relationship_id) return [{ member_id: member.id, relationship_id: member.relationship_id }]
+        if (member.recipient_email) return [{ member_id: member.id, recipient_email: member.recipient_email }]
+        return []
+      }),
+      removed_member_ids: value.removed_member_ids,
+      payments: payments.map((payment) => ({
+        member_id: payment.payerId,
+        amount_minor: payment.amountMinor,
+      })),
+      shares,
+    }
+    financialRpcAttempted = true
+    const { data, error } = await admin.rpc('expense_reconfirm_edit_revision_v1', {
+      p_actor_id: user.id,
+      p_request_id: value.request_id,
+      p_expense_id: value.expense_id,
+      p_draft_id: value.draft_id,
+      p_expected_draft_version: value.expected_draft_version,
+      p_expected_publication_version: value.expected_publication_version,
+      p_expected_financial_version: value.expected_financial_version,
+      p_proposal: canonicalProposal,
+    })
+    if (error) rpcError(error)
+    const result = resultObject(data)
+    const financialVersion = Number(result.financial_version)
+    const unchanged = result.state === 'unchanged_reconfirmed'
+    if ((result.state !== 'reconfirmed' && !unchanged)
+      || result.expense_id !== value.expense_id
+      || !Number.isSafeInteger(financialVersion) || financialVersion < 0) {
+      throw new Error('expense_edit_revision_result_invalid')
+    }
+    try {
+      await deliverExpenseInvitationIds(user.id, result.invitation_ids)
+    } catch (error) {
+      console.error(
+        '[expenses] reconfirm invitation delivery follow-up failed',
+        safeExpenseFailureDiagnostic(error),
+      )
+    }
+    revalidateExpensePaths(groupId, value.expense_id)
+    return {
+      ok: true,
+      data: { groupId, expenseId: value.expense_id, financialVersion, unchanged },
+    }
+  } catch (error) {
+    console.error('[expenses] reconfirm edit revision failed', safeExpenseFailureDiagnostic(error))
+    const mapped = actionError(error)
+    if (financialRpcAttempted
+      && mapped.error === 'save_failed'
+      && (!(error instanceof ExpenseRpcError) || error.sqlState === 'unknown')) {
       return { ok: false, error: 'save_outcome_unknown' }
     }
     return mapped

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   deriveExpenseConfirmedPresentation,
   deriveExpenseConfirmedPresentations,
@@ -30,6 +32,18 @@ function editDraft(
 }
 
 describe('single-visible Expense presentation authority', () => {
+  it('keeps legacy derivation out of the SQL170 dashboard runtime path', () => {
+    const repository = readFileSync(join(process.cwd(), 'lib/expenses/repository.server.ts'), 'utf8')
+    const dashboard = readFileSync(join(process.cwd(), 'components/expenses/ExpenseDashboard.tsx'), 'utf8')
+    const directory = readFileSync(join(process.cwd(), 'components/expenses/ExpenseDashboardDirectory.tsx'), 'utf8')
+
+    expect(repository).not.toContain('deriveExpenseConfirmedPresentations')
+    expect(dashboard).toContain('dashboard.dashboardPresentations')
+    expect(dashboard).not.toContain('dashboard.privateDrafts.items')
+    expect(dashboard).not.toContain('dashboard.sharedDrafts.items')
+    expect(directory).not.toMatch(/dedup|classifyLifecycle|presentationFor/)
+  })
+
   it('shows the confirmed representation when no exact edit exists', () => {
     expect(deriveExpenseConfirmedPresentation({
       draftSourceStatus: 'ready',
@@ -46,6 +60,7 @@ describe('single-visible Expense presentation authority', () => {
       groupId: GROUP_ID,
       expenseId: EXPENSE_A,
       drafts: [draft],
+      sharedRevisionExpenseIds: new Set([EXPENSE_A]),
     })).toEqual({ status: 'editing', draftId: draft.id, expenseId: EXPENSE_A })
   })
 
@@ -61,6 +76,7 @@ describe('single-visible Expense presentation authority', () => {
       groupId: GROUP_ID,
       expenseId: EXPENSE_A,
       drafts: [d1, d2],
+      sharedRevisionExpenseIds: new Set([EXPENSE_A]),
     })).toEqual({ status: 'ambiguous', reason: 'duplicate_same_expense' })
   })
 
@@ -76,6 +92,7 @@ describe('single-visible Expense presentation authority', () => {
         editDraft('53000000-0000-4000-8000-000000000021', EXPENSE_A),
         editDraft('53000000-0000-4000-8000-000000000022', EXPENSE_B),
       ],
+      sharedRevisionExpenseIds: new Set([EXPENSE_A, EXPENSE_B]),
     })).toEqual([
       {
         expenseId: EXPENSE_A,
@@ -111,6 +128,7 @@ describe('single-visible Expense presentation authority', () => {
         { id: EXPENSE_B, title: 'Expense B', status: 'active' },
       ],
       drafts: [d1, d2],
+      sharedRevisionExpenseIds: new Set([EXPENSE_A]),
     })).toEqual([
       {
         expenseId: EXPENSE_A,
@@ -173,6 +191,16 @@ describe('single-visible Expense presentation authority', () => {
           contextType: 'one_off', groupId: null, expenseId: null,
         }),
       ],
+    })).toEqual({ status: 'confirmed' })
+  })
+
+  it('keeps an unbound legacy edit draft inert without a canonical binding', () => {
+    expect(deriveExpenseConfirmedPresentation({
+      draftSourceStatus: 'ready',
+      groupId: GROUP_ID,
+      expenseId: EXPENSE_A,
+      drafts: [editDraft('53000000-0000-4000-8000-000000000051', EXPENSE_A)],
+      sharedRevisionExpenseIds: new Set(),
     })).toEqual({ status: 'confirmed' })
   })
 })

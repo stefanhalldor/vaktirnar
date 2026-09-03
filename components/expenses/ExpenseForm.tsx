@@ -12,7 +12,8 @@ import {
   saveExpenseDraft,
   shareExpenseDraft,
   unshareExpenseDraft,
-  updateExpense,
+  discardExpenseEditRevision,
+  reconfirmExpenseEditRevision,
 } from '@/lib/expenses/actions'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
 import {
@@ -100,6 +101,7 @@ function expenseEditErrorKey(error: ExpenseActionErrorCode) {
     case 'feature_disabled':
     case 'save_failed':
     case 'save_outcome_unknown':
+    case 'legacy_edit_draft_unbound':
       return `editErrors.${error}`
     default:
       return `errors.${error}`
@@ -437,23 +439,12 @@ export function ExpenseForm({
     })
   }
 
-  async function persistDraft(step: ExpenseFlowStep): Promise<boolean> {
+  async function persistDraft(
+    step: ExpenseFlowStep,
+    { replaceRouteAfterSave = true }: { replaceRouteAfterSave?: boolean } = {},
+  ): Promise<boolean> {
     if (consumedDraftIdRef.current !== null) return false
-    if (edit && (
-      edit.groupStatus === 'settling'
-      || edit.groupStatus === 'settled'
-      || edit.hasReportedRepayment
-      || edit.hasConfirmedRepayment
-    )) {
-      // SQL102 intentionally blocks private edit drafts once settlement starts.
-      // SQL103 permits the audited edit itself, so keep step navigation local
-      // and let the explicit Save action below persist the real change.
-      initialDraftFingerprint.current = draftFingerprint
-      setDraftStatus('idle')
-      return true
-    }
-    if (!edit
-      && draftVersionRef.current !== null
+    if (draftVersionRef.current !== null
       && draftStepRef.current === step
       && initialDraftFingerprint.current === draftFingerprint) {
       setDraftStatus('saved')
@@ -481,7 +472,12 @@ export function ExpenseForm({
           current_step: step,
           payload: draftPayload(),
         })
-        if (!result.ok) throw new Error('draft_save_failed')
+        if (!result.ok) {
+          setDraftStatus('error')
+          setError(t(edit ? expenseEditErrorKey(result.error) : 'errors.draftSaveFailed'))
+          queueMicrotask(() => alertRef.current?.focus())
+          return false
+        }
         draftIdRef.current = result.data.draftId
         draftVersionRef.current = result.data.version
         draftStepRef.current = step
@@ -504,7 +500,7 @@ export function ExpenseForm({
         }
         initialDraftFingerprint.current = draftFingerprint
         setDraftStatus('saved')
-        if (draftBaseHref) {
+        if (draftBaseHref && replaceRouteAfterSave) {
           const separator = draftBaseHref.includes('?') ? '&' : '?'
           router.replace(`${draftBaseHref}${separator}draft=${result.data.draftId}`)
         }
@@ -1118,7 +1114,7 @@ export function ExpenseForm({
 
   function shareDraft() {
     runPublicationAction('share', async () => {
-      if (!await persistDraft(currentStep)) return
+      if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
       const lifecycle = await loadCurrentPublicationLifecycle()
       if (!lifecycle) return
       const expectedPublicationVersion = lifecycle.sharingState === 'never_shared'
@@ -1160,7 +1156,7 @@ export function ExpenseForm({
   function unshareDraft() {
     if (!window.confirm(t('expenseForm.unshareDraftConfirmation'))) return
     runPublicationAction('unshare', async () => {
-      if (!await persistDraft(currentStep)) return
+      if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
       const lifecycle = await loadCurrentPublicationLifecycle()
       if (!lifecycle
         || lifecycle.sharingState !== 'shared'
@@ -1203,7 +1199,7 @@ export function ExpenseForm({
       return
     }
     runPublicationAction('finalize', async () => {
-      if (!await persistDraft(currentStep)) return
+      if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
       const lifecycle = await loadCurrentPublicationLifecycle()
       if (!lifecycle) return
       if (lifecycle.sharingState === 'shared'
@@ -1247,6 +1243,16 @@ export function ExpenseForm({
   function saveExpenseChanges() {
     if (!edit) return
     setError(null)
+    if (confirmedAllocationFingerprint !== allocationFingerprint) {
+      showMutationError('errors.confirmExpenseAllocation')
+      return
+    }
+    if (publicationUnavailable || sharedHasUnsharedChanges) {
+      showMutationError(sharedHasUnsharedChanges
+        ? 'errors.sharedDraftChangesPending'
+        : 'errors.draftPublicationUnavailable')
+      return
+    }
     const invalidStep = EXPENSE_FLOW_STEPS.find((step) => !isStepValid(step))
     if (invalidStep) {
       setCurrentStep(invalidStep)
@@ -1268,7 +1274,7 @@ export function ExpenseForm({
       const amount = payments[memberKey]?.trim()
       return amount ? [{ member_key: memberKey, amount }] : []
     })
-    const editPayload = {
+    const editPayloadBase = {
       expense_id: edit.expense.id,
       expected_financial_version: edit.expectedFinancialVersion,
       title,
@@ -1278,7 +1284,6 @@ export function ExpenseForm({
       category: category || null,
       note: note || null,
       split_method: preserveShares ? edit.expense.splitMethod : splitMethod,
-      draft_id: draftVersionRef.current ? draftIdRef.current : null,
       preserve_shares: preserveShares,
       new_members: members.flatMap((member) => (
         member.newGuest
@@ -1290,11 +1295,20 @@ export function ExpenseForm({
       payments: paymentRows,
       allocations: preserveShares ? [] : allocationPayload(),
     }
-    const requestPayload = editPayload
     startTransition(async () => {
       try {
-        const result = await updateExpense({
-          ...editPayload,
+        if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
+        const requestPayload = {
+          ...editPayloadBase,
+          draft_id: draftIdRef.current,
+          expected_draft_version: draftVersionRef.current,
+          expected_publication_version: currentPublicationLifecycle?.status === 'ready'
+            && currentPublicationLifecycle.sharingState !== 'never_shared'
+            ? currentPublicationLifecycle.expectedPublicationVersion
+            : null,
+        }
+        const result = await reconfirmExpenseEditRevision({
+          ...requestPayload,
           request_id: requestIds.forPayload(requestPayload),
         })
         if (!result.ok) {
@@ -1312,9 +1326,45 @@ export function ExpenseForm({
     })
   }
 
+  function discardRevision() {
+    if (!edit || draftVersionRef.current === null) return
+    if (!window.confirm(t('expenseForm.discardEditRevisionConfirmation'))) return
+    const lifecycle = currentPublicationLifecycle?.status === 'ready'
+      ? currentPublicationLifecycle
+      : null
+    const semanticPayload = {
+      operation: 'discard_edit_revision' as const,
+      expense_id: edit.expense.id,
+      draft_id: draftIdRef.current,
+      expected_draft_version: draftVersionRef.current,
+      expected_publication_version: lifecycle
+        && lifecycle.sharingState !== 'never_shared'
+        ? lifecycle.expectedPublicationVersion
+        : null,
+    }
+    startTransition(async () => {
+      try {
+        const result = await discardExpenseEditRevision({
+          ...semanticPayload,
+          request_id: requestIds.forPayload(semanticPayload),
+        })
+        if (!result.ok) {
+          showMutationError(`errors.${result.error}`)
+          return
+        }
+        requestIds.succeeded(semanticPayload)
+        consumedDraftIdRef.current = semanticPayload.draft_id
+        router.replace(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${edit.expense.id}`)
+        router.refresh()
+      } catch {
+        showMutationError('errors.save_failed')
+      }
+    })
+  }
+
   async function saveDraftOnly() {
     setError(null)
-    if (!await persistDraft(currentStep)) return
+    if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
     router.push('/auth-mvp/utlagt-og-endurgreitt')
     router.refresh()
   }
@@ -1326,6 +1376,7 @@ export function ExpenseForm({
   const publicationIsShared = publicationReady?.sharingState === 'shared'
   const sharedHasUnsharedChanges = publicationIsShared
     && (publicationReady.hasUnsharedChanges !== false
+      || publicationReady.draftVersion !== draftVersionRef.current
       || sharedUiFingerprintRef.current !== shareableUiFingerprint)
   const publicationUnavailable = currentPublicationLifecycle?.status === 'unavailable'
   const publicationCandidate = isDetailsValid()
@@ -1364,7 +1415,11 @@ export function ExpenseForm({
         : t('expenseForm.confirmExpense')
     }
     if (primaryDraftAction === 'share') {
-      if (publicationAction === 'share') return t('expenseForm.sharingDraft')
+      if (publicationAction === 'share') {
+        return t(sharedHasUnsharedChanges
+          ? 'expenseForm.sharingDraftChanges'
+          : 'expenseForm.sharingDraft')
+      }
       return sharedHasUnsharedChanges
         ? t('expenseForm.shareDraftChanges')
         : t('expenseForm.shareDraft')
@@ -1723,7 +1778,7 @@ export function ExpenseForm({
       </fieldset>
       ) : null}
 
-      {currentStep === 'split' && !edit ? (
+      {currentStep === 'split' ? (
         <fieldset className="space-y-3 rounded-2xl border border-border p-4">
           <legend className="px-1 text-sm font-semibold">{t('expenseForm.allocationConfirmationLegend')}</legend>
           <label className="flex min-h-11 items-start gap-3 text-sm">
@@ -1768,16 +1823,27 @@ export function ExpenseForm({
             </button>
           ) : null}
           {edit && currentStep === 'details' ? (
-            <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={navigationBusy} onClick={saveExpenseChanges}>
-              {isPending ? t('expenseForm.updating') : t('expenseForm.saveNow')}
+            <button type="button" className={`${expenseSecondaryButtonClass} w-full`} disabled={navigationBusy} onClick={() => void saveDraftOnly()}>
+              {draftStatus === 'saving' ? t('expenseForm.draftSaving') : t('expenseForm.saveAndClose')}
             </button>
           ) : null}
           {currentStepIndex === EXPENSE_FLOW_STEPS.length - 1 ? (
             edit ? (
               isStepValid(currentStep) ? (
-                <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy}>
-                  {isPending ? t('expenseForm.updating') : t('expenseForm.update')}
-                </button>
+                sharedHasUnsharedChanges ? (
+                  <button
+                    type="button"
+                    className={`${expensePrimaryButtonClass} w-full`}
+                    disabled={navigationBusy || !publicationCandidate}
+                    onClick={runPrimaryDraftAction}
+                  >
+                    {primaryDraftActionLabel()}
+                  </button>
+                ) : (
+                  <button type="submit" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy || !allocationConfirmed || publicationUnavailable}>
+                    {isPending ? t('expenseForm.updating') : t('expenseForm.update')}
+                  </button>
+                )
               ) : (
                 <button type="button" className={`${expensePrimaryButtonClass} w-full`} disabled={navigationBusy || !isDetailsValid()} onClick={() => void saveDraftOnly()}>
                   {draftStatus === 'saving' ? t('expenseForm.draftSaving') : t('expenseForm.saveDraftOnly')}
@@ -1828,6 +1894,32 @@ export function ExpenseForm({
               ? t('expenseForm.unsharingDraft')
               : t('expenseForm.unshareDraft')}
           </button>
+        ) : null}
+        {edit && currentStepIndex === EXPENSE_FLOW_STEPS.length - 1 ? (
+          <>
+            <button
+              type="button"
+              className={`${expenseSecondaryButtonClass} w-full`}
+              disabled={navigationBusy || (!publicationIsShared && !publicationCandidate)}
+              onClick={publicationIsShared ? unshareDraft : shareDraft}
+            >
+              {publicationIsShared
+                ? publicationAction === 'unshare'
+                  ? t('expenseForm.unsharingDraft')
+                  : t('expenseForm.unshareDraft')
+                : publicationAction === 'share'
+                  ? t('expenseForm.sharingDraft')
+                  : t('expenseForm.shareDraft')}
+            </button>
+            <button
+              type="button"
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-xl px-4 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              disabled={navigationBusy}
+              onClick={discardRevision}
+            >
+              {t('expenseForm.discardEditRevision')}
+            </button>
+          </>
         ) : null}
       </div>
       </fieldset>

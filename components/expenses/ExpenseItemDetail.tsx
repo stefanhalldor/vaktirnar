@@ -8,6 +8,7 @@ import type {
   ExpenseGroupView,
   ExpenseItemView,
   ExpenseParticipantOption,
+  ExpenseEditRevisionStateView,
 } from '@/lib/expenses/contracts'
 import type { ExpenseEventLinkManagementV2View } from '@/lib/events/contracts'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
@@ -21,6 +22,7 @@ import { ExpenseItemHistory } from './ExpenseItemHistory'
 import { ExpenseFlowNav } from './ExpenseFlowNav'
 import { ExpenseEventLinkControl } from './ExpenseEventLinkControl'
 import { ExpenseClaimDisputeControl } from './ExpenseClaimDisputeControl'
+import { ExpenseEditRevisionControls } from './ExpenseEditRevisionControls'
 import {
   ExpenseSettlementParticipantList,
   type ExpenseSettlementParticipantRow,
@@ -39,6 +41,7 @@ export async function ExpenseItemDetail({
   eventLinkManagementUnavailable = false,
   eventIdentityCandidates = null,
   relationshipIdentityManagementState = { status: 'absent' },
+  revisionState = { status: 'none', canOpen: false, openReason: 'unavailable' },
 }: {
   group: ExpenseGroupView
   expense: ExpenseItemView
@@ -52,11 +55,14 @@ export async function ExpenseItemDetail({
   eventLinkManagementUnavailable?: boolean
   eventIdentityCandidates?: ExpenseEventIdentityCandidatesView | null
   relationshipIdentityManagementState?: ExpenseRelationshipIdentityManagementState
+  revisionState?: ExpenseEditRevisionStateView
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const hasLockedRepayment = group.repayments.some(
     (repayment) => repayment.status === 'reported' || repayment.status === 'confirmed',
   )
+  const editRevisionState = revisionState.status
+  const settlementLocked = editRevisionState === 'open' || editRevisionState === 'unavailable'
   const canEdit = canEditExpense({
     expenseStatus: expense.status,
     groupStatus: group.status,
@@ -66,6 +72,7 @@ export async function ExpenseItemDetail({
   const canCancel = expense.status === 'active'
     && group.status === 'active'
     && !hasLockedRepayment
+    && !settlementLocked
     && (expense.createdBySelf || group.canManage)
   const balances = calculateExpenseBalances({
     expenseId: expense.id,
@@ -197,10 +204,12 @@ export async function ExpenseItemDetail({
       repaymentStatus,
       remainingAmountMinor: Math.max(-balance.amountMinor, 0),
       actionableRemainingAmountMinor: Math.max(-amountMinor, 0),
-      actionTransfer: actionTransferByMember.get(balance.partyId) ?? null,
+      actionTransfer: settlementLocked
+        ? null
+        : actionTransferByMember.get(balance.partyId) ?? null,
       identities,
       isShared: identities.length > 1,
-      canAddCollaborator: group.kind === 'one_off'
+      canAddCollaborator: !settlementLocked && group.kind === 'one_off'
         && group.canManage
         && group.shareCollaborationReady === true
         && group.status !== 'closed'
@@ -360,9 +369,13 @@ export async function ExpenseItemDetail({
           </div>
 
           {canEdit ? (
-            <Link href={expenseEditStepHref(expense.id, 'details')} className="inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-border px-4 text-sm font-medium transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
-              {t('expense.editDetails')}
-            </Link>
+            <ExpenseEditRevisionControls
+              expenseId={expense.id}
+              state={revisionState}
+              paymentAware={group.status === 'settling'
+                || group.status === 'settled'
+                || hasLockedRepayment}
+            />
           ) : null}
 
           {history}
@@ -373,7 +386,7 @@ export async function ExpenseItemDetail({
         <section className="space-y-5">
           <div className="flex min-h-11 items-center justify-between gap-3">
             <h2 className="text-base font-semibold">{t('expense.savedViews.settlement')}</h2>
-            {canEdit ? (
+            {canEdit && editRevisionState === 'none' ? (
               <Link
                 href={expenseEditStepHref(expense.id, 'split')}
                 className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
@@ -383,6 +396,16 @@ export async function ExpenseItemDetail({
               </Link>
             ) : null}
           </div>
+          {editRevisionState === 'open' ? (
+            <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+              <p className="font-semibold">{t('editRevision.settlementLockedTitle')}</p>
+              <p className="mt-1 text-sm leading-6">{t('editRevision.settlementLockedBody')}</p>
+            </div>
+          ) : editRevisionState === 'unavailable' ? (
+            <div role="status" className="rounded-xl border border-border bg-muted/50 p-4 text-sm leading-6">
+              {t('editRevision.unavailable')}
+            </div>
+          ) : null}
           {group.settlementRequiresReview ? (
             <div role="status" className="border-y border-amber-300 bg-amber-50 px-3 py-4 text-sm text-amber-950">
               <p className="font-semibold">{t(group.claimReviewRequired

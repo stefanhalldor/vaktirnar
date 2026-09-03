@@ -2,6 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
+import { LegacyExpenseEditDraftNotice } from '@/components/expenses/LegacyExpenseEditDraftNotice'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
 import { isExpenseEventContext } from '@/lib/events/repository.server'
 import { guardExpenseAccess } from '@/lib/expenses/guard'
@@ -11,7 +12,9 @@ import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server
 import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import {
   getCanonicalExpenseEditDraft,
+  getExpenseDraftPublicationLifecycle,
   getExpenseItemView,
+  getLegacyExpenseEditDraftState,
 } from '@/lib/expenses/repository.server'
 
 export default async function EditExpensePage({
@@ -96,7 +99,55 @@ export default async function EditExpensePage({
   if (canonical.status === 'single' && draftId !== canonical.draft.id) {
     redirect(`${expenseDetailHref(expense.id)}/breyta?step=${canonical.draft.currentStep}&draft=${canonical.draft.id}`)
   }
+  if (canonical.status === 'none') {
+    const legacy = await getLegacyExpenseEditDraftState(user.id, expense.id)
+    if (legacy.status === 'legacy_unbound') {
+      return (
+        <ExpenseShell
+          title={expense.title}
+          homeLabel={t('homeLabel')}
+          backHref={expenseDetailHref(expense.id)}
+          backLabel={t('back')}
+          closedTestingFeature="utlagt-og-endurgreitt"
+        >
+          <LegacyExpenseEditDraftNotice
+            expenseId={expense.id}
+            draftId={legacy.draftId}
+            draftVersion={legacy.draftVersion}
+          />
+        </ExpenseShell>
+      )
+    }
+    if (legacy.status === 'legacy_ambiguous' || legacy.status === 'unavailable') {
+      const detailHref = expenseDetailHref(expense.id)
+      return (
+        <ExpenseShell
+          title={expense.title}
+          homeLabel={t('homeLabel')}
+          backHref={detailHref}
+          backLabel={t('back')}
+          closedTestingFeature="utlagt-og-endurgreitt"
+        >
+          <section role="status" className="space-y-4 border-y border-border py-6">
+            <p className="text-sm leading-6 text-muted-foreground">
+              {t('editState.unavailableBody')}
+            </p>
+            <Link
+              href={detailHref}
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {t('editState.backToExpense')}
+            </Link>
+          </section>
+        </ExpenseShell>
+      )
+    }
+    redirect(expenseDetailHref(expense.id))
+  }
   const safeDraft = canonical.status === 'single' ? canonical.draft : null
+  const publicationLifecycle = safeDraft
+    ? await getExpenseDraftPublicationLifecycle(user.id, safeDraft.id)
+    : null
   const initialStep = safeDraft?.currentStep ?? parseExpenseFlowStep(query.step)
   const referencedMemberIds = new Set([
     ...expense.payments.map((payment) => payment.memberId),
@@ -135,6 +186,7 @@ export default async function EditExpensePage({
         participantOptionsError={participantOptionsError}
         eventContext={isEventContext}
         draft={safeDraft}
+        publicationLifecycle={publicationLifecycle}
         initialDraftId={draftId ?? undefined}
         draftBaseHref={`${expenseDetailHref(expense.id)}/breyta`}
         initialMembers={group.members

@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   expenseForm: vi.fn(),
   getCanonicalEditDraft: vi.fn(),
+  getDraftPublicationLifecycle: vi.fn(),
   getItemView: vi.fn(),
+  getLegacyEditDraftState: vi.fn(),
   getParticipantOptions: vi.fn(),
   getPrivateDraft: vi.fn(),
   guardExpenseAccess: vi.fn(),
@@ -22,7 +24,9 @@ vi.mock('@/lib/expenses/participants.server', () => ({
 }))
 vi.mock('@/lib/expenses/repository.server', () => ({
   getCanonicalExpenseEditDraft: mocks.getCanonicalEditDraft,
+  getExpenseDraftPublicationLifecycle: mocks.getDraftPublicationLifecycle,
   getExpenseItemView: mocks.getItemView,
+  getLegacyExpenseEditDraftState: mocks.getLegacyEditDraftState,
   getExpensePrivateDraft: mocks.getPrivateDraft,
 }))
 vi.mock('@/components/expenses/i18n.server', () => ({
@@ -52,6 +56,11 @@ vi.mock('@/components/expenses/ExpenseForm', () => ({
     mocks.expenseForm(props)
     return <div data-testid="expense-form" />
   },
+}))
+vi.mock('@/components/expenses/LegacyExpenseEditDraftNotice', () => ({
+  LegacyExpenseEditDraftNotice: (props: Record<string, unknown>) => (
+    <div data-testid="legacy-edit-draft-notice" data-draft-id={String(props.draftId)} />
+  ),
 }))
 
 import EditExpensePage from '../utgjold/[expenseId]/breyta/page'
@@ -111,21 +120,35 @@ beforeEach(() => {
   mocks.getItemView.mockResolvedValue(itemView())
   mocks.getParticipantOptions.mockResolvedValue([])
   mocks.getPrivateDraft.mockResolvedValue(null)
+  mocks.getDraftPublicationLifecycle.mockResolvedValue(null)
+  mocks.getLegacyEditDraftState.mockResolvedValue({ status: 'none' })
   mocks.isEventContext.mockResolvedValue(false)
 })
 
 describe('confirmed Expense edit route states', () => {
-  it('opens a confirmed-seeded form when no canonical edit draft exists', async () => {
+  it('redirects to confirmed detail when no server-authoritative edit revision exists', async () => {
     mocks.getCanonicalEditDraft.mockResolvedValue({ status: 'none' })
 
-    render(await renderRoute({ step: 'split' }))
+    await expect(renderRoute({ step: 'split' })).rejects.toThrow('NEXT_REDIRECT')
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/auth-mvp/utlagt-og-endurgreitt/utgjold/${EXPENSE_ID}`,
+    )
+    expect(mocks.expenseForm).not.toHaveBeenCalled()
+  })
 
-    expect(screen.getByTestId('expense-form')).toBeInTheDocument()
-    expect(mocks.expenseForm).toHaveBeenCalledWith(expect.objectContaining({
-      draft: null,
-      draftBaseHref: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${EXPENSE_ID}/breyta`,
-    }))
-    expect(mocks.notFound).not.toHaveBeenCalled()
+  it('shows the owner-only legacy state without rendering the edit form', async () => {
+    mocks.getCanonicalEditDraft.mockResolvedValue({ status: 'none' })
+    mocks.getLegacyEditDraftState.mockResolvedValue({
+      status: 'legacy_unbound',
+      draftId: DRAFT_ID,
+      draftVersion: 3,
+    })
+
+    render(await renderRoute({ step: 'split', draft: DRAFT_ID }))
+
+    expect(screen.getByTestId('legacy-edit-draft-notice')).toHaveAttribute('data-draft-id', DRAFT_ID)
+    expect(mocks.expenseForm).not.toHaveBeenCalled()
+    expect(mocks.redirect).not.toHaveBeenCalled()
   })
 
   it('redirects to the exact single canonical draft without heuristic selection', async () => {
@@ -222,18 +245,17 @@ describe('confirmed Expense edit route states', () => {
     expect(mocks.redirect).not.toHaveBeenCalled()
   })
 
-  it('preserves a requested non-durable identity only when canonical state is none', async () => {
+  it('does not let a requested non-durable identity bypass revision opening', async () => {
     mocks.getCanonicalEditDraft.mockResolvedValue({ status: 'none' })
     mocks.getPrivateDraft.mockResolvedValue(null)
 
-    render(await renderRoute({ step: 'split', draft: DRAFT_ID }))
+    await expect(renderRoute({ step: 'split', draft: DRAFT_ID })).rejects.toThrow('NEXT_REDIRECT')
 
     expect(mocks.getCanonicalEditDraft).toHaveBeenCalledWith(ACTOR_ID, GROUP_ID, EXPENSE_ID)
     expect(mocks.getPrivateDraft).not.toHaveBeenCalled()
-    expect(mocks.expenseForm).toHaveBeenCalledWith(expect.objectContaining({
-      draft: null,
-      initialDraftId: DRAFT_ID,
-    }))
-    expect(mocks.redirect).not.toHaveBeenCalled()
+    expect(mocks.expenseForm).not.toHaveBeenCalled()
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/auth-mvp/utlagt-og-endurgreitt/utgjold/${EXPENSE_ID}`,
+    )
   })
 })

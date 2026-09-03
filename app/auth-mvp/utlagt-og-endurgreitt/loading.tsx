@@ -1,5 +1,5 @@
 import { ExpenseRouteLoading } from '@/components/expenses/ExpenseRouteLoading'
 
-export default function Loading() {
+export default function LoadingExpenses() {
   return <ExpenseRouteLoading />
 }

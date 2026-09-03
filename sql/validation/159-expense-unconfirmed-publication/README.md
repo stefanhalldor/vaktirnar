@@ -108,6 +108,13 @@ next.
 
 ## Diagnostic use
 
+`diagnose-exact-draft-lineage.sql` is a separate operator-edited investigation
+for exact D1, D2 and confirmed E identifiers. It starts an explicit read-only
+transaction and always rolls back. Its result contains only labels, bounded
+timestamps/versions, booleans and pseudonymous fingerprints/digests; it never
+returns raw UUIDs, draft payloads or user-entered/private fields. It performs
+no cleanup or repair.
+
 `diagnose-preflight.sql` is only for a preflight or postflight mismatch. It is
 100% read-only and does not repair, install or change expectations. Retain its
 safe object/signature/owner/grantee/boolean/count/hash output for review. It

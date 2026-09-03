@@ -57,6 +57,7 @@ import {
   bindExpenseMemberEventIdentity,
   bindExpenseMemberRelationshipIdentity,
   cancelExpenseMemberInvitation,
+  discardLegacyExpenseEditDraft,
   disputeExpenseClaim,
   linkExpenseGuestMember,
   renameExpenseGuestMember,
@@ -78,6 +79,7 @@ const INVITATION_ID = '50000000-0000-4000-8000-000000000001'
 const REQUEST_ID = '60000000-0000-4000-8000-000000000001'
 const EVENT_PARTICIPANT_ID = '70000000-0000-4000-8000-000000000001'
 const RELATIONSHIP_ID = '71000000-0000-4000-8000-000000000001'
+const DRAFT_ID = '72000000-0000-4000-8000-000000000001'
 
 function updateInput(overrides: Record<string, unknown> = {}) {
   return {
@@ -947,6 +949,51 @@ describe('expense guest-member invitations', () => {
     )
   })
 
+  it('discards only the exact legacy edit draft through the dedicated RPC', async () => {
+    setRpcResponses({
+      expense_discard_legacy_edit_draft_v1: {
+        data: {
+          contract_version: 1,
+          state: 'legacy_discarded',
+          expense_id: EXPENSE_ID,
+          group_id: GROUP_ID,
+        },
+        error: null,
+      },
+    })
+
+    await expect(discardLegacyExpenseEditDraft({
+      request_id: REQUEST_ID,
+      expense_id: EXPENSE_ID,
+      draft_id: DRAFT_ID,
+      expected_draft_version: 2,
+    })).resolves.toEqual({ ok: true, data: { expenseId: EXPENSE_ID } })
+    expect(mockRpc).toHaveBeenCalledWith('expense_discard_legacy_edit_draft_v1', {
+      p_actor_id: ACTOR_ID,
+      p_request_id: REQUEST_ID,
+      p_expense_id: EXPENSE_ID,
+      p_draft_id: DRAFT_ID,
+      p_expected_draft_version: 2,
+    })
+  })
+
+  it('returns one bounded result when a second tab already removed the legacy draft', async () => {
+    setRpcResponses({
+      expense_discard_legacy_edit_draft_v1: {
+        data: null,
+        error: { code: 'P0001', message: 'expense_legacy_edit_draft_unbound' },
+      },
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(discardLegacyExpenseEditDraft({
+      request_id: REQUEST_ID,
+      expense_id: EXPENSE_ID,
+      draft_id: DRAFT_ID,
+      expected_draft_version: 2,
+    })).resolves.toEqual({ ok: false, error: 'legacy_edit_draft_unbound' })
+  })
+
   it.each([
     ['updateExpense', updateExpense],
     ['linkExpenseGuestMember', linkExpenseGuestMember],
@@ -954,6 +1001,7 @@ describe('expense guest-member invitations', () => {
     ['resendExpenseMemberInvitation', resendExpenseMemberInvitation],
     ['respondExpenseMemberInvitation', respondExpenseMemberInvitation],
     ['cancelExpenseMemberInvitation', cancelExpenseMemberInvitation],
+    ['discardLegacyExpenseEditDraft', discardLegacyExpenseEditDraft],
   ])('%s leaves redirect control flow outside its error boundary', async (_name, action) => {
     mockGuardExpenseAccess.mockRejectedValueOnce(new Error('NEXT_REDIRECT:/'))
     await expect(action({})).rejects.toThrow('NEXT_REDIRECT:/')

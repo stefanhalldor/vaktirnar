@@ -78,6 +78,20 @@ const translations: Record<string, string> = {
   'expense.openEvent': 'Opna viðburð',
   'expense.edit': 'Breyta útgjaldinu',
   'expense.editDetails': 'Breyta færslu',
+  'editRevision.openAction': 'Færa í drög',
+  'editRevision.cannotOpen': 'Ekki er hægt að færa þennan kostnað í drög.',
+  'editRevision.choiceTitle': 'Hvernig viltu vinna breytingarnar?',
+  'editRevision.choiceBody': 'Staðfesti kostnaðurinn gildir áfram.',
+  'editRevision.paymentWarning': 'Ekki er hægt að gera kostnaðinn upp meðan breyting er opin.',
+  'editRevision.privateChoice': 'Einkadrög',
+  'editRevision.sharedChoice': 'Sameiginleg drög',
+  'editRevision.cancelChoice': 'Hætta við',
+  'editRevision.openTitle': 'Skipting í breytingu',
+  'editRevision.openBody': 'Staðfesti kostnaðurinn gildir áfram.',
+  'editRevision.continueAction': 'Halda áfram',
+  'editRevision.unavailable': 'Ekki tókst að sækja stöðu breytingarinnar.',
+  'editRevision.settlementLockedTitle': 'Skipting í breytingu',
+  'editRevision.settlementLockedBody': 'Ekki er hægt að gera kostnaðinn upp fyrr en ný skipting hefur verið staðfest.',
   'expense.cancel': 'Fella útgjald niður',
   'expense.summaryPaid': '{name} lagði út {amount}',
   'expense.summarySinglePayer': '{name} lagði út',
@@ -271,7 +285,11 @@ describe('ExpenseItemDetail flow context', () => {
   })
 
   it('opens on a high-level Útlagt summary with clickable lifecycle views', async () => {
-    render(await ExpenseItemDetail({ group, expense }))
+    render(await ExpenseItemDetail({
+      group,
+      expense,
+      revisionState: { status: 'none', canOpen: true, openReason: 'clean' },
+    }))
 
     const nav = screen.getByRole('navigation', { name: 'Skref við skráningu útgjalds' })
     expect(within(nav).getByRole('button', { name: 'Útlagt' })).toHaveAttribute('aria-current', 'step')
@@ -282,10 +300,7 @@ describe('ExpenseItemDetail flow context', () => {
     expect(screen.getByText('Góð lýsing á kvöldmatnum.')).toBeInTheDocument()
     expect(screen.getByText(/Þú átt eftir að fá 5\.000\s*kr\./)).toBeInTheDocument()
     expect(screen.getByText(/Anna á eftir að greiða 5\.000\s*kr\./)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Breyta færslu' })).toHaveAttribute(
-      'href',
-      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1/breyta?step=details',
-    )
+    expect(screen.getByRole('button', { name: 'Færa í drög' })).toBeEnabled()
     expect(within(nav).queryByRole('button', { name: 'Skipting' })).not.toBeInTheDocument()
   })
 
@@ -434,6 +449,38 @@ describe('ExpenseItemDetail flow context', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Aðgerðir fyrir Anna' }))
     expect(screen.getByRole('button', { name: 'Tengja við Teskeiðarnotanda' })).toBeInTheDocument()
     expect(screen.queryByText('Tengja gest eða skoða boð')).not.toBeInTheDocument()
+  })
+
+  it('keeps confirmed settlement visible but removes every settlement mutation while editing', async () => {
+    render(await ExpenseItemDetail({
+      group: {
+        ...group,
+        kind: 'one_off',
+        balances: [
+          { memberId: 'self', displayName: 'Ég', currency: 'ISK', amountMinor: 5_000, isSelf: true },
+          { memberId: 'anna', displayName: 'Anna', currency: 'ISK', amountMinor: -5_000, isSelf: false },
+        ],
+      },
+      expense,
+      view: 'settlement',
+      revisionState: {
+        status: 'open',
+        mode: 'private',
+        ownedByActor: true,
+        draftId: 'draft-1',
+        draftVersion: 1,
+        publicationVersion: null,
+      },
+    }))
+
+    expect(screen.getByText('Skipting í breytingu')).toBeInTheDocument()
+    expect(screen.getByText(/Ekki er hægt að gera kostnaðinn upp/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Breyta skiptingu' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Bæta við aðila' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Útistandandi greiðslur 1' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Aðgerðir fyrir Anna' }))
+    expect(screen.queryByRole('button', { name: 'Tilkynna greitt' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Merkja greiðslu móttekna' })).not.toBeInTheDocument()
   })
 
   it('suppresses every guest identity action for an expense-backed event', async () => {
@@ -830,7 +877,7 @@ describe('ExpenseItemDetail flow context', () => {
     expect(screen.queryByRole('button', { name: 'Merkja greiðslu móttekna' })).not.toBeInTheDocument()
   })
 
-  it('keeps editing available after settlement starts and explains a reported-payment conflict', async () => {
+  it('keeps clean-only editing unavailable after reported settlement starts', async () => {
     const repayment = {
       id: 'repayment-1', obligationId: 'obligation-1', groupId: group.id,
       fromMemberId: 'anna', fromDisplayName: 'Anna', toMemberId: 'self', toDisplayName: 'Ég',
@@ -848,9 +895,11 @@ describe('ExpenseItemDetail flow context', () => {
         repayments: [repayment],
       },
       expense,
+      revisionState: { status: 'none', canOpen: false, openReason: 'history' },
     }))
 
-    expect(screen.getByRole('link', { name: 'Breyta færslu' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Færa í drög' })).not.toBeInTheDocument()
+    expect(screen.getByText('Ekki er hægt að færa þennan kostnað í drög.')).toBeInTheDocument()
     expect(screen.getByText('Uppgjörið þarfnast yfirferðar')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Fara í uppgjör' })).toHaveAttribute(
       'href', '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1?view=settlement',

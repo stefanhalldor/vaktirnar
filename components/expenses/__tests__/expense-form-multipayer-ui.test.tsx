@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   shareDraft: vi.fn(),
   unshareDraft: vi.fn(),
   finalizeDraft: vi.fn(),
+  reconfirmRevision: vi.fn(),
+  discardRevision: vi.fn(),
   refreshPublicationLifecycle: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),
@@ -49,9 +51,12 @@ const translations: Record<string, string> = {
   'expenseForm.shareDraft': 'Deila drögum',
   'expenseForm.shareDraftChanges': 'Deila breytingum',
   'expenseForm.sharingDraft': 'Deili drögum...',
+  'expenseForm.sharingDraftChanges': 'Deili breytingum...',
   'expenseForm.unshareDraft': 'Hætta að deila',
   'expenseForm.unsharingDraft': 'Hætti að deila...',
   'expenseForm.unshareDraftConfirmation': 'Aðrir missa aðgang að drögunum.',
+  'expenseForm.discardEditRevision': 'Hætta við breytingar',
+  'expenseForm.discardEditRevisionConfirmation': 'Viltu hætta við breytingarnar?',
   'expenseForm.confirmExpense': 'Staðfesta kostnað',
   'expenseForm.confirmingExpense': 'Staðfesti kostnað...',
   'expenseForm.allocationConfirmationLegend': 'Staðfesting',
@@ -147,6 +152,8 @@ vi.mock('@/lib/expenses/actions', () => ({
   unshareExpenseDraft: mocks.unshareDraft,
   finalizeExpenseDraft: mocks.finalizeDraft,
   refreshExpenseDraftPublicationLifecycle: mocks.refreshPublicationLifecycle,
+  reconfirmExpenseEditRevision: mocks.reconfirmRevision,
+  discardExpenseEditRevision: mocks.discardRevision,
 }))
 
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
@@ -157,7 +164,7 @@ const members = [
 ]
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
   mocks.saveDraft.mockImplementation(async (input) => ({
     ok: true,
     data: {
@@ -201,6 +208,11 @@ beforeEach(() => {
   })
   mocks.create.mockResolvedValue({ ok: true, data: { groupId: 'group-1', expenseId: 'expense-1' } })
   mocks.update.mockResolvedValue({ ok: true, data: { groupId: 'group-1', expenseId: 'expense-1', financialVersion: 2 } })
+  mocks.reconfirmRevision.mockResolvedValue({
+    ok: true,
+    data: { groupId: 'group-1', expenseId: 'expense-1', financialVersion: 2, unchanged: false },
+  })
+  mocks.discardRevision.mockResolvedValue({ ok: true, data: { expenseId: 'expense-1' } })
 })
 
 function renderForm(extra: Partial<React.ComponentProps<typeof ExpenseForm>> = {}) {
@@ -279,6 +291,37 @@ function savedGroupDraft(version = 2) {
     },
     version,
     savedAt: '2026-08-26T09:00:00.000Z',
+  }
+}
+
+function editableExpense(): ExpenseItemView {
+  return {
+    id: 'expense-1',
+    groupId: 'group-1',
+    title: 'Kvöldmatur',
+    totalMinor: 10_000,
+    currency: 'ISK',
+    incurredOn: '2026-08-05',
+    category: 'food',
+    note: null,
+    status: 'active',
+    splitMethod: 'weighted',
+    createdBySelf: true,
+    createdAt: '2026-08-05T12:00:00Z',
+    payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
+    shares: [
+      { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
+      { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
+    ],
+    revisions: [],
+  }
+}
+
+function savedEditDraft(version = 2) {
+  return {
+    ...savedGroupDraft(version),
+    contextType: 'edit' as const,
+    expenseId: 'expense-1',
   }
 }
 
@@ -582,7 +625,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(mocks.saveDraft).toHaveBeenLastCalledWith(expect.objectContaining({ draft_id: adoptedDraftId }))
 
     first.unmount()
-    mocks.saveDraft.mockResolvedValueOnce({
+    mocks.saveDraft.mockResolvedValue({
       ok: true,
       data: { draftId: adoptedDraftId, version: 1, savedAt: '2026-08-05T12:00:00Z', relationStatus: 'unchanged', eventId: null, eventRosterRevision: null, privacyFailClosed: false },
     })
@@ -606,6 +649,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     })))
     expect(mocks.shareDraft).not.toHaveBeenCalled()
     expect(mocks.finalizeDraft).not.toHaveBeenCalled()
+    expect(mocks.replace).not.toHaveBeenCalledWith(expect.stringMatching(/^\/draft\?draft=/))
     expect(mocks.push).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt')
   })
 
@@ -934,7 +978,7 @@ describe('ExpenseForm simplified split and autosave', () => {
         savedAt: '2026-08-26T09:05:00.000Z',
       },
     })
-    mocks.refreshPublicationLifecycle.mockResolvedValueOnce({
+    mocks.refreshPublicationLifecycle.mockResolvedValue({
       status: 'ready',
       draftId: '81000000-0000-4000-8000-000000000001',
       draftVersion: 3,
@@ -980,6 +1024,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(mocks.refreshPublicationLifecycle.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.shareDraft.mock.invocationCallOrder[0]!,
     )
+    expect(mocks.replace).not.toHaveBeenCalledWith(expect.stringMatching(/^\/draft\?draft=/))
   })
 
   it('locks the full form while a publication mutation is pending', async () => {
@@ -1090,6 +1135,63 @@ describe('ExpenseForm simplified split and autosave', () => {
     })))
   })
 
+  it('does not reload the draft route between a dirty save and finalization', async () => {
+    const draft = savedGroupDraft()
+    mocks.saveDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: draft.id,
+        version: 3,
+        savedAt: '2026-08-31T00:00:00.000Z',
+        relationStatus: 'unchanged',
+        eventId: null,
+        eventRosterRevision: null,
+        privacyFailClosed: false,
+      },
+    })
+    mocks.refreshPublicationLifecycle.mockResolvedValueOnce({
+      status: 'ready',
+      draftId: draft.id,
+      draftVersion: 3,
+      sharingState: 'never_shared',
+      expectedPublicationVersion: null,
+      hasUnsharedChanges: false,
+    })
+    renderForm({
+      draft,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: draft.id,
+        draftVersion: draft.version,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    const split = screen.getByRole('group', { name: 'Hvernig skiptist greiðslan?' })
+    const weights = within(split).getAllByRole('textbox', { name: 'Hlutir' })
+    fireEvent.change(weights[1]!, { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
+
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: draft.id,
+      expected_version: 2,
+      current_step: 'split',
+    })))
+    await waitFor(() => expect(mocks.finalizeDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: draft.id,
+      expected_draft_version: 3,
+      split_confirmed: true,
+    })))
+    expect(mocks.replace).not.toHaveBeenCalledWith(expect.stringMatching(/^\/draft\?draft=/))
+    expect(mocks.replace).toHaveBeenCalledTimes(1)
+    expect(mocks.replace).toHaveBeenCalledWith(
+      '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1',
+    )
+  })
+
   it('retires the exact consumed draft route after finalization and cannot submit it again', async () => {
     const draft = savedGroupDraft()
     renderForm({
@@ -1176,80 +1278,261 @@ describe('ExpenseForm simplified split and autosave', () => {
       expected_publication_version: 7,
     })))
     expect(mocks.refreshPublicationLifecycle).not.toHaveBeenCalled()
+    expect(mocks.replace).not.toHaveBeenCalledWith(expect.stringMatching(/^\/draft\?draft=/))
     expect(screen.getByRole('button', { name: 'Deila drögum' })).toBeInTheDocument()
     confirm.mockRestore()
   })
 
-  it('prefills and updates the expense title and description through the details step', async () => {
-    const editExpense: ExpenseItemView = {
-      id: 'expense-1',
-      groupId: 'group-1',
-      title: 'Gamalt heiti',
-      totalMinor: 10_000,
-      currency: 'ISK',
-      incurredOn: '2026-08-05',
-      category: null,
-      note: 'Gömul lýsing',
-      status: 'active',
-      splitMethod: 'weighted',
-      createdBySelf: true,
-      createdAt: '2026-08-05T12:00:00Z',
-      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
-      shares: [
-        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
-        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
-      ],
-      revisions: [],
+  it('[V167] lets a private edit revision reconfirm its allocation without a publication step', () => {
+    renderForm({
+      initialStep: 'split',
+      draft: savedEditDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+      edit: { expense: editableExpense(), expectedFinancialVersion: 1 },
+    })
+
+    const confirmation = screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ })
+    expect(confirmation).not.toBeChecked()
+    fireEvent.click(confirmation)
+    expect(confirmation).toBeChecked()
+    fireEvent.change(screen.getAllByRole('textbox', { name: 'Hlutir' })[0]!, {
+      target: { value: '2' },
+    })
+    expect(confirmation).not.toBeChecked()
+    fireEvent.click(confirmation)
+    expect(screen.getByRole('button', { name: 'Vista breytingar' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Deila breytingum' })).not.toBeInTheDocument()
+  })
+
+  it('[V167] reuses one request id for the exact post-save private reconfirm payload', async () => {
+    mocks.saveDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: '81000000-0000-4000-8000-000000000001',
+        version: 3,
+        savedAt: '2026-08-31T18:00:00.000Z',
+        relationStatus: 'unchanged',
+        eventId: null,
+        eventRosterRevision: null,
+        privacyFailClosed: false,
+      },
+    })
+    mocks.reconfirmRevision
+      .mockResolvedValueOnce({ ok: false, error: 'save_outcome_unknown' })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { groupId: 'group-1', expenseId: 'expense-1', financialVersion: 2, unchanged: false },
+      })
+    renderForm({
+      initialStep: 'split',
+      draft: savedEditDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+      edit: { expense: editableExpense(), expectedFinancialVersion: 1 },
+    })
+
+    fireEvent.change(screen.getAllByRole('textbox', { name: 'Hlutir' })[0]!, {
+      target: { value: '2' },
+    })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
+
+    await waitFor(() => expect(mocks.reconfirmRevision).toHaveBeenCalledTimes(1))
+    const firstPayload = mocks.reconfirmRevision.mock.calls[0]![0]
+    expect(firstPayload).toEqual(expect.objectContaining({
+      draft_id: '81000000-0000-4000-8000-000000000001',
+      expected_draft_version: 3,
+      expected_publication_version: null,
+    }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að staðfesta niðurstöðu vistunar.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
+
+    await waitFor(() => expect(mocks.reconfirmRevision).toHaveBeenCalledTimes(2))
+    const secondPayload = mocks.reconfirmRevision.mock.calls[1]![0]
+    const { request_id: firstRequestId, ...firstSemanticPayload } = firstPayload
+    const { request_id: secondRequestId, ...secondSemanticPayload } = secondPayload
+    expect(secondSemanticPayload).toEqual(firstSemanticPayload)
+    expect(secondRequestId).toBe(firstRequestId)
+    expect(secondPayload.expected_draft_version).toBe(firstPayload.expected_draft_version)
+    expect(mocks.saveDraft).toHaveBeenCalledTimes(1)
+  })
+
+  it('[V167] makes reshare primary for dirty shared edits and keeps unshare separate', async () => {
+    mocks.refreshPublicationLifecycle.mockResolvedValueOnce({
+      status: 'ready',
+      draftId: '81000000-0000-4000-8000-000000000001',
+      draftVersion: 2,
+      sharingState: 'shared',
+      expectedPublicationVersion: 7,
+      hasUnsharedChanges: true,
+    })
+    mocks.shareDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        publicationVersion: 8,
+        allocationState: 'balanced_unconfirmed',
+      },
+    })
+    renderForm({
+      initialStep: 'split',
+      draft: savedEditDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: true,
+      },
+      edit: { expense: editableExpense(), expectedFinancialVersion: 1 },
+    })
+
+    const confirmation = screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ })
+    fireEvent.click(confirmation)
+    const shareChanges = screen.getByRole('button', { name: 'Deila breytingum' })
+    expect(screen.getByRole('button', { name: 'Hætta að deila' })).toBeInTheDocument()
+
+    fireEvent.click(shareChanges)
+
+    await waitFor(() => expect(mocks.shareDraft).toHaveBeenCalledWith(expect.objectContaining({
+      expected_draft_version: 2,
+      expected_publication_version: 7,
+    })))
+    expect(mocks.unshareDraft).not.toHaveBeenCalled()
+    expect(mocks.update).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Vista breytingar' })).toBeEnabled())
+    expect(screen.getByRole('button', { name: 'Hætta að deila' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
+    await waitFor(() => expect(mocks.reconfirmRevision).toHaveBeenCalledWith(expect.objectContaining({
+      expected_draft_version: 2,
+      expected_publication_version: 8,
+    })))
+    expect(mocks.update).not.toHaveBeenCalled()
+  })
+
+  it('[V167] keeps a failed shared-edit republish bounded and privacy-safe', async () => {
+    mocks.refreshPublicationLifecycle.mockResolvedValueOnce({
+      status: 'ready',
+      draftId: '81000000-0000-4000-8000-000000000001',
+      draftVersion: 2,
+      sharingState: 'shared',
+      expectedPublicationVersion: 7,
+      hasUnsharedChanges: true,
+    })
+    mocks.shareDraft.mockResolvedValueOnce({ ok: false, error: 'conflict' })
+    renderForm({
+      initialStep: 'split',
+      draft: savedEditDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: true,
+      },
+      edit: { expense: editableExpense(), expectedFinancialVersion: 1 },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deila breytingum' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Gögnin hafa breyst.')
+    expect(screen.queryByText(/sqlstate|expense_|publication|rpc|81000000-/i)).not.toBeInTheDocument()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(mocks.unshareDraft).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Deila breytingum' })).toBeEnabled())
+  })
+
+  it('[V167] discards a bound edit only through the exact revision action', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderForm({
+      initialStep: 'split',
+      draft: savedEditDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: false,
+      },
+      edit: { expense: editableExpense(), expectedFinancialVersion: 1 },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hætta við breytingar' }))
+
+    await waitFor(() => expect(mocks.discardRevision).toHaveBeenCalledWith(expect.objectContaining({
+      expense_id: 'expense-1',
+      draft_id: '81000000-0000-4000-8000-000000000001',
+      expected_draft_version: 2,
+      expected_publication_version: 7,
+    })))
+    expect(mocks.reconfirmRevision).not.toHaveBeenCalled()
+    expect(mocks.update).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('persists changed edit details through the bound revision draft', async () => {
+    const baseDraft = savedEditDraft()
+    const draft = {
+      ...baseDraft,
+      currentStep: 'details' as const,
+      payload: {
+        ...baseDraft.payload,
+        title: 'Gamalt heiti',
+        note: 'Gömul lýsing',
+      },
     }
-    renderForm({ edit: { expense: editExpense, expectedFinancialVersion: 1 } })
+    renderForm({
+      initialStep: 'details',
+      draft,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: draft.id,
+        draftVersion: draft.version,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+      edit: { expense: editableExpense(), expectedFinancialVersion: 1 },
+    })
 
     const title = screen.getByRole('textbox', { name: 'Heiti útgjalds' })
     const description = screen.getByRole('textbox', { name: /Lýsing/ })
     expect(title).toHaveValue('Gamalt heiti')
     expect(description).toHaveValue('Gömul lýsing')
-    expect(screen.getByRole('textbox', { name: 'Upphæð' })).toHaveValue('10.000')
-    expect(screen.getByRole('button', { name: 'Vista' })).toBeInTheDocument()
 
     fireEvent.change(title, { target: { value: 'Nýtt heiti' } })
     fireEvent.change(description, { target: { value: 'Ný lýsing' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Vista' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vista og loka' }))
 
-    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      context_type: 'edit',
       expense_id: 'expense-1',
-      title: 'Nýtt heiti',
-      note: 'Ný lýsing',
+      payload: expect.objectContaining({
+        title: 'Nýtt heiti',
+        note: 'Ný lýsing',
+      }),
     })))
-  })
-
-  it('preserves edit values and renders truthful translated copy for an uncertain save outcome', async () => {
-    const editExpense: ExpenseItemView = {
-      id: 'expense-1', groupId: 'group-1', title: 'Gamalt heiti', totalMinor: 10_000,
-      currency: 'ISK', incurredOn: '2026-08-05', category: null, note: 'Gömul lýsing',
-      status: 'active', splitMethod: 'weighted', createdBySelf: true,
-      createdAt: '2026-08-05T12:00:00Z',
-      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
-      shares: [
-        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
-        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
-      ],
-      revisions: [],
-    }
-    mocks.update.mockResolvedValueOnce({ ok: false, error: 'save_outcome_unknown' })
-    renderForm({ edit: { expense: editExpense, expectedFinancialVersion: 1 } })
-    const title = screen.getByRole('textbox', { name: 'Heiti útgjalds' })
-    const description = screen.getByRole('textbox', { name: /Lýsing/ })
-    fireEvent.change(title, { target: { value: 'Nýtt heiti sem má ekki tapast' } })
-    fireEvent.change(description, { target: { value: 'Ný lýsing sem má ekki tapast' } })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Vista' }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Ekki tókst að staðfesta niðurstöðu vistunar. Ekki vista aftur strax.',
-    )
-    expect(title).toHaveValue('Nýtt heiti sem má ekki tapast')
-    expect(description).toHaveValue('Ný lýsing sem má ekki tapast')
-    expect(screen.queryByText(/sqlstate|expense_update|rpc|40000000-/i)).not.toBeInTheDocument()
-    expect(mocks.push).not.toHaveBeenCalled()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(mocks.reconfirmRevision).not.toHaveBeenCalled()
   })
 
   it('keeps edit values and explains a durably referenced participant removal', async () => {
@@ -1265,45 +1548,29 @@ describe('ExpenseForm simplified split and autosave', () => {
       ],
       revisions: [],
     }
-    mocks.update.mockResolvedValueOnce({ ok: false, error: 'referenced_participant' })
-    renderForm({ edit: { expense: editExpense, expectedFinancialVersion: 1 } })
+    mocks.reconfirmRevision.mockResolvedValueOnce({ ok: false, error: 'referenced_participant' })
+    renderForm({
+      initialStep: 'split',
+      draft: savedEditDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+      edit: { expense: editExpense, expectedFinancialVersion: 1 },
+    })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Vista' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Haltu þátttakandanum inni í skiptingunni og reyndu aftur.',
     )
     expect(screen.queryByText(/sqlstate|expense_share|collaborator|invitation|rpc/i)).not.toBeInTheDocument()
     expect(mocks.push).not.toHaveBeenCalled()
-  })
-
-  it('keeps settled edit navigation local when SQL102 drafts are unavailable', async () => {
-    const editExpense: ExpenseItemView = {
-      id: 'expense-1', groupId: 'group-1', title: 'Kvöldmatur', totalMinor: 10_000,
-      currency: 'ISK', incurredOn: '2026-08-05', category: 'food', note: null,
-      status: 'active', splitMethod: 'weighted', createdBySelf: true,
-      createdAt: '2026-08-05T12:00:00Z',
-      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
-      shares: [
-        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
-        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
-      ],
-      revisions: [],
-    }
-    renderForm({
-      edit: {
-        expense: editExpense,
-        expectedFinancialVersion: 4,
-        groupStatus: 'settled',
-        hasConfirmedRepayment: true,
-      },
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
-    const participants = await screen.findByRole('group', { name: 'Hverjir taka þátt í kostnaðinum?' })
-    expect(within(participants).getByText('Ég (þú)')).toBeInTheDocument()
-    expect(mocks.saveDraft).not.toHaveBeenCalled()
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('shows each persisted cost share and positive payment states with the participant', () => {
@@ -1343,53 +1610,40 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(within(participants).getByText(/Greiðsla tilkynnt .* · staðfest/)).toBeInTheDocument()
   })
 
-  it('recalculates a settled expense without an interruption popup', async () => {
-    const editExpense: ExpenseItemView = {
-      id: 'expense-1', groupId: 'group-1', title: 'Kvöldmatur', totalMinor: 10_000,
-      currency: 'ISK', incurredOn: '2026-08-05', category: null, note: null,
-      status: 'active', splitMethod: 'weighted', createdBySelf: true,
-      createdAt: '2026-08-05T12:00:00Z',
-      payments: [{ memberId: 'member-self', displayName: 'Ég', amountMinor: 10_000 }],
-      shares: [
-        { memberId: 'member-self', displayName: 'Ég', amountMinor: 5_000 },
-        { memberId: 'member-anna', displayName: 'Anna', amountMinor: 5_000 },
-      ],
-      revisions: [],
-    }
-    const confirm = vi.spyOn(window, 'confirm')
-    renderForm({
-      initialStep: 'split',
-      edit: {
-        expense: editExpense,
-        expectedFinancialVersion: 4,
-        groupStatus: 'settled',
-        hasConfirmedRepayment: true,
+  it('shares an underallocated fixed split as a recoverable draft without creating ledger state', async () => {
+    const draft = savedGroupDraft()
+    mocks.saveDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: draft.id,
+        version: 3,
+        savedAt: '2026-08-31T18:00:00.000Z',
+        relationStatus: 'unchanged',
+        eventId: null,
+        eventRosterRevision: null,
+        privacyFailClosed: false,
       },
     })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
-    await waitFor(() => expect(mocks.update).toHaveBeenCalled())
-    expect(confirm).not.toHaveBeenCalled()
-    confirm.mockRestore()
-  })
-
-  it('shows an accessible error and does not navigate when finalization throws', async () => {
-    mocks.finalizeDraft.mockRejectedValueOnce(new Error('network unavailable'))
-    renderForm()
-    fillDetails()
-    await next('Áfram í skiptingu')
-    fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að vista.')
-    expect(mocks.push).not.toHaveBeenCalled()
-  })
-
-  it('shares an underallocated fixed split as a recoverable draft without creating ledger state', async () => {
-    renderForm()
-    fillDetails()
-    await next('Áfram í skiptingu')
-    mocks.saveDraft.mockClear()
+    mocks.refreshPublicationLifecycle.mockResolvedValueOnce({
+      status: 'ready',
+      draftId: draft.id,
+      draftVersion: 3,
+      sharingState: 'never_shared',
+      expectedPublicationVersion: null,
+      hasUnsharedChanges: false,
+    })
+    renderForm({
+      initialStep: 'split',
+      draft,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: draft.id,
+        draftVersion: draft.version,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+    })
 
     const split = screen.getByRole('group', { name: 'Hvernig skiptist greiðslan?' })
     fireEvent.click(within(split).getByRole('radio', { name: 'Föst upphæð' }))
@@ -1411,10 +1665,10 @@ describe('ExpenseForm simplified split and autosave', () => {
         }),
       }),
     })))
-    expect(mocks.shareDraft).toHaveBeenCalledWith(expect.objectContaining({
-      expected_draft_version: 1,
+    await waitFor(() => expect(mocks.shareDraft).toHaveBeenCalledWith(expect.objectContaining({
+      expected_draft_version: 3,
       expected_publication_version: null,
-    }))
+    })))
     expect(mocks.finalizeDraft).not.toHaveBeenCalled()
   })
 })
