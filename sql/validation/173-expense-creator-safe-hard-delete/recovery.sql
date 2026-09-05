@@ -764,7 +764,7 @@ installed_function_identity_state AS (
          WHERE routine.oid = 'public.expense_validate_finalization_expense_reference()'::pg_catalog.regprocedure) <> '3124b6233c3045627463f49487a49c59'
      OR (SELECT pg_catalog.md5(pg_catalog.replace(routine.prosrc, E'\r\n', E'\n'))
          FROM pg_catalog.pg_proc AS routine
-         WHERE routine.oid = 'public.expense_hard_delete_authorized(uuid)'::pg_catalog.regprocedure) <> '200407c6e13d0dd1e58ae4c7a266f818'
+         WHERE routine.oid = 'public.expense_hard_delete_authorized(uuid)'::pg_catalog.regprocedure) <> '9381e225abe7cea9f582afb62c774d00'
      OR (SELECT pg_catalog.md5(pg_catalog.replace(routine.prosrc, E'\r\n', E'\n'))
          FROM pg_catalog.pg_proc AS routine
          WHERE routine.oid = 'public.expense_revisions_immutable()'::pg_catalog.regprocedure) <> '01e24a341ffc1f83be0c92235ba76a6b'
@@ -791,7 +791,7 @@ installed_function_identity_state AS (
          WHERE routine.oid = 'public.expense_get_own_delete_capability(uuid,uuid)'::pg_catalog.regprocedure) <> 'ffbd530e2f759d85809a34045ac15a1e'
      OR (SELECT pg_catalog.md5(pg_catalog.replace(routine.prosrc, E'\r\n', E'\n'))
          FROM pg_catalog.pg_proc AS routine
-         WHERE routine.oid = 'public.expense_delete_own_unsettled_expense(uuid,uuid,bigint,uuid)'::pg_catalog.regprocedure) <> 'acb41ca79ba1e5e7388c87f5aa60fb56'
+         WHERE routine.oid = 'public.expense_delete_own_unsettled_expense(uuid,uuid,bigint,uuid)'::pg_catalog.regprocedure) <> '41bc44fc718a17fc4fc8c0777e0a0a67'
      THEN
     RAISE EXCEPTION 'expense_sql173_postcondition_failed';
   END IF;

@@ -338,7 +338,7 @@ describe('SQL173 creator-only safe hard delete', () => {
       expense_deleted_tombstone_immutable: '4eb040d0bdeb874c2cb22c844bab1ca4',
       expense_reject_deleted_id_reuse: '0d0da15e31183448a4382466e84c216c',
       expense_validate_finalization_expense_reference: '3124b6233c3045627463f49487a49c59',
-      expense_hard_delete_authorized: '200407c6e13d0dd1e58ae4c7a266f818',
+      expense_hard_delete_authorized: '9381e225abe7cea9f582afb62c774d00',
       expense_revisions_immutable: '01e24a341ffc1f83be0c92235ba76a6b',
       expense_member_name_revision_immutable: '756c28d816b3ad4f5eb66209cb061b94',
       expense_guard_share_collaborator_mutation: '6dc57dd8a7871fed6299d345ddda3df7',
@@ -347,7 +347,7 @@ describe('SQL173 creator-only safe hard delete', () => {
       expense_hard_delete_receipt_shape_known: 'edb8a21d01ffdbbb8e9aa2b94c7c2594',
       expense_hard_delete_receipts_classified: '9def695d70fc38b63011cb2bd12e2e67',
       expense_get_own_delete_capability: 'ffbd530e2f759d85809a34045ac15a1e',
-      expense_delete_own_unsettled_expense: 'acb41ca79ba1e5e7388c87f5aa60fb56',
+      expense_delete_own_unsettled_expense: '41bc44fc718a17fc4fc8c0777e0a0a67',
     }
     const validationRoot = join(
       process.cwd(),
@@ -378,6 +378,10 @@ describe('SQL173 creator-only safe hard delete', () => {
     ].join('\n')
 
     expect(executableSql).not.toMatch(/pg_catalog\.coalesce\s*\(/i)
+  })
+
+  it('does not use the PostgreSQL AUTHORIZATION keyword as an unquoted alias', () => {
+    expect(sql).not.toMatch(/\bAS\s+authorization\b/i)
   })
 
   it('keeps the server-derived delete capability visible across saved detail views', () => {

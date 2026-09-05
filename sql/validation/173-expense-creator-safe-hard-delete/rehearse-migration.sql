@@ -461,7 +461,7 @@ installed_source_state AS (
     ('public.expense_deleted_tombstone_immutable()', '4eb040d0bdeb874c2cb22c844bab1ca4', false, 'v', 'plpgsql'),
     ('public.expense_reject_deleted_id_reuse()', '0d0da15e31183448a4382466e84c216c', true, 'v', 'plpgsql'),
     ('public.expense_validate_finalization_expense_reference()', '3124b6233c3045627463f49487a49c59', true, 'v', 'plpgsql'),
-    ('public.expense_hard_delete_authorized(uuid)', '200407c6e13d0dd1e58ae4c7a266f818', true, 'v', 'sql'),
+    ('public.expense_hard_delete_authorized(uuid)', '9381e225abe7cea9f582afb62c774d00', true, 'v', 'sql'),
     ('public.expense_revisions_immutable()', '01e24a341ffc1f83be0c92235ba76a6b', false, 'v', 'plpgsql'),
     ('public.expense_member_name_revision_immutable()', '756c28d816b3ad4f5eb66209cb061b94', true, 'v', 'plpgsql'),
     ('public.expense_guard_share_collaborator_mutation()', '6dc57dd8a7871fed6299d345ddda3df7', true, 'v', 'plpgsql'),
@@ -470,7 +470,7 @@ installed_source_state AS (
     ('public.expense_hard_delete_receipt_shape_known(text,jsonb)', 'edb8a21d01ffdbbb8e9aa2b94c7c2594', true, 'i', 'sql'),
     ('public.expense_hard_delete_receipts_classified(uuid,uuid,boolean,uuid[])', '9def695d70fc38b63011cb2bd12e2e67', true, 's', 'plpgsql'),
     ('public.expense_get_own_delete_capability(uuid,uuid)', 'ffbd530e2f759d85809a34045ac15a1e', true, 's', 'plpgsql'),
-    ('public.expense_delete_own_unsettled_expense(uuid,uuid,bigint,uuid)', 'acb41ca79ba1e5e7388c87f5aa60fb56', true, 'v', 'plpgsql')
+    ('public.expense_delete_own_unsettled_expense(uuid,uuid,bigint,uuid)', '41bc44fc718a17fc4fc8c0777e0a0a67', true, 'v', 'plpgsql')
   ) AS expected(signature, source_md5, security_definer, volatility, language_name)
   LEFT JOIN pg_catalog.pg_proc AS routine
     ON routine.oid = pg_catalog.to_regprocedure(expected.signature)
