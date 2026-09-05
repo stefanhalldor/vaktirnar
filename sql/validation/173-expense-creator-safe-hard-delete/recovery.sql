@@ -636,7 +636,7 @@ installed_function_identity_state AS (
           AND actual.convalidated
           AND NOT actual.condeferrable
           AND NOT actual.condeferred
-          AND NOT actual.connoinherit
+          AND actual.connoinherit
           AND actual.conislocal
           AND actual.coninhcount = 0
         ), false) AS ok

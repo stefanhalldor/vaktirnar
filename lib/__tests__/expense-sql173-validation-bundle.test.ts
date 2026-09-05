@@ -169,6 +169,8 @@ describe('SQL173 operator bundle', () => {
       expect(source).toContain(
         'constraint_row.connoinherit = expected.no_inherit',
       )
+      expect(source).toContain('AND actual.connoinherit')
+      expect(source).not.toContain('AND NOT actual.connoinherit')
       expect(source).toContain(
         'CASE WHEN expected.service_dml THEN 12 ELSE 8 END',
       )
