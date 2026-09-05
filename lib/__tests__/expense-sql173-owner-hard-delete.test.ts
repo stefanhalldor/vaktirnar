@@ -344,10 +344,10 @@ describe('SQL173 creator-only safe hard delete', () => {
       expense_guard_share_collaborator_mutation: '6dc57dd8a7871fed6299d345ddda3df7',
       expense_validate_relationship_source_live_context: 'de5c6904c63278360cf0f2c9796bb5c7',
       expense_insert_relationship_source: 'e2415ab3ef58b15709627f530f0f6003',
-      expense_hard_delete_receipt_shape_known: 'be40706024dc294149e0ef0e9a78dce4',
-      expense_hard_delete_receipts_classified: 'fc64f596cff952e10437e0e34f40db36',
-      expense_get_own_delete_capability: '95ef7a58f5f2fb3c749317ced5e6ab4e',
-      expense_delete_own_unsettled_expense: 'e495230536b9d5574d07c57de67a433b',
+      expense_hard_delete_receipt_shape_known: 'edb8a21d01ffdbbb8e9aa2b94c7c2594',
+      expense_hard_delete_receipts_classified: '9def695d70fc38b63011cb2bd12e2e67',
+      expense_get_own_delete_capability: 'ffbd530e2f759d85809a34045ac15a1e',
+      expense_delete_own_unsettled_expense: 'acb41ca79ba1e5e7388c87f5aa60fb56',
     }
     const validationRoot = join(
       process.cwd(),
@@ -364,6 +364,20 @@ describe('SQL173 creator-only safe hard delete', () => {
       expect(sql, name).toContain(hash)
       expect(gates, name).toContain(hash)
     }
+  })
+
+  it('never schema-qualifies the COALESCE SQL special form', () => {
+    const validationRoot = join(
+      process.cwd(),
+      'sql/validation/173-expense-creator-safe-hard-delete',
+    )
+    const executableSql = [
+      sql,
+      ...['preflight.sql', 'rehearse-migration.sql', 'postflight.sql', 'recovery.sql']
+        .map((name) => readFileSync(join(validationRoot, name), 'utf8')),
+    ].join('\n')
+
+    expect(executableSql).not.toMatch(/pg_catalog\.coalesce\s*\(/i)
   })
 
   it('keeps the server-derived delete capability visible across saved detail views', () => {

@@ -82,9 +82,9 @@ The distinction is mandatory:
 
 `runtime RPC = delete one exact eligible Expense`
 
-The migration, preflight, rehearsal, postflight, recovery and diagnostics must
-never call the mutation RPC or delete an existing Expense/application row.
-Static regression tests enforce that boundary.
+The ACL hardening, migration, preflight, rehearsal, postflight, recovery and
+diagnostics must never call the mutation RPC or delete an existing
+Expense/application row. Static regression tests enforce that boundary.
 
 ## Operator sequence
 
@@ -92,15 +92,20 @@ No SQL in this bundle has been executed by Codex. Every Production SQL step
 requires a later, separate authorization and Stebbi remains the sole manual
 Production SQL operator.
 
-1. Run `preflight.sql` by itself. Continue only from `PREDECESSOR_READY`.
+1. Run `harden-predecessor-acl.sql` by itself. Its transaction accepts only the
+   exact observed legacy overgrant or the already-hardened state, then revokes
+   only `TRUNCATE`, `REFERENCES`, `TRIGGER` and `MAINTAIN` from `service_role`
+   on `relationship_sources`. It preserves `SELECT`, `INSERT`, `UPDATE` and
+   `DELETE` and never changes an application row.
+2. Run `preflight.sql` by itself. Continue only from `PREDECESSOR_READY`.
    `EXACT_INSTALLED` means no migration is needed. Any other state is STOP.
-2. `rehearse-migration.sql` is deliberately read-only. It classifies the
+3. `rehearse-migration.sql` is deliberately read-only. It classifies the
    predecessor or installed state without invoking deletion or changing rows.
    Require the matching PASS state; drift is STOP.
-3. Run `sql/173_expense_creator_safe_hard_delete.sql` alone under normal
+4. Run `sql/173_expense_creator_safe_hard_delete.sql` alone under normal
    autocommit. Do not combine it with other SQL or wrap it in another
    transaction.
-4. Run `postflight.sql` alone. Require every predicate and
+5. Run `postflight.sql` alone. Require every predicate and
    `postconditions_ok` to be true.
 
 Production validation must remain catalog-only. Do not call the deletion RPC
@@ -121,30 +126,27 @@ transaction-scoped advisory lock `(173, 107)`. Recovery checks runtime state,
 validates the full installed catalog and then checks runtime state again while
 holding that lock through commit.
 
-## Runtime-test gap
+## Accepted runtime-test waiver
 
-No approved disposable PostgreSQL/Supabase environment has been identified in
-this workspace or session. Static tests can
-freeze SQL structure, ACL intent, lock order, denial branches, idempotency
-placement and non-destructive rollout, but they cannot execute PL/pgSQL or
-prove transactional rollback behavior. True deletion semantics must be tested
-later through the normal UI/runtime path against reviewed disposable
-non-Production data. Never use Production SQL Editor for that test.
+Stebbi explicitly waived the disposable PostgreSQL Gate 4 as an accepted beta
+business risk. Static tests freeze SQL structure, ACL intent, lock order, denial
+branches, idempotency placement and non-destructive rollout, but they do not
+execute the complete PL/pgSQL concurrency/rollback matrix. This residual risk
+must remain visible in the final closeout.
 
-The later proof must use a freshly identified disposable database and disposable
-users/Expenses, then cover: SQL parse/install and exact pre/postconditions;
-creator versus non-creator UI authority; open-revision and settlement-history
-denials; `MAX_SAFE_INTEGER - 1`/ceiling behavior; atomic rollback on a forced
-postcondition failure; rapid double-click/idempotent replay; one-off member and
-relationship-provenance cleanup; reusable-group preservation; and a controlled
-two-session schedule proving delete/recovery serialization plus both orderings
-of provenance insert versus one-off deletion. The destructive call must still
-originate from the confirmed product UI, never SQL Editor.
+The first destructive runtime proof is separately authorized only through the
+normal authenticated product UI on localhost while it uses the Production
+backend. Stebbi must deliberately choose a safe disposable Expense. Never call
+the deletion RPC, issue a manual `DELETE`, or exercise destructive semantics
+from Production SQL Editor. Rollout SQL remains installation/validation only
+and must not delete an application row.
 
 ## Localhost checks for Stebbi
 
-Do not perform these checks until SQL173 is installed in a disposable local or
-other approved non-Production database.
+Do not perform these checks until SQL173 is exactly installed and postflight is
+fully green. The checks use localhost against the Production backend under
+Stebbi's explicit waiver, so the chosen Expense and its dedicated one-off
+container must be genuinely disposable.
 
 1. Sign in as the exact creator of a disposable active Expense with no edit or
    repayment history.
@@ -167,5 +169,7 @@ other approved non-Production database.
 If the response becomes uncertain, expect a focused warning that deletion may
 already have completed. Do not click delete again; reload and verify state.
 
-Use only disposable non-Production records. Do not manufacture or delete
-Production data for this check.
+Do not manually call the RPC or run destructive SQL. Do not use a settled,
+shared, legacy or otherwise valuable Production Expense merely to satisfy a
+scenario. Stop on any uncertain eligibility, stale-version, privacy or server
+error.

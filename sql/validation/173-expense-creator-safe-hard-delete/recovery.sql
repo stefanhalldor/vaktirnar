@@ -165,21 +165,21 @@ BEGIN
 
   IF (
     SELECT pg_catalog.count(*) = 2
-      AND pg_catalog.coalesce(pg_catalog.bool_and(
+      AND COALESCE(pg_catalog.bool_and(
         constraint_row.oid IS NOT NULL
         AND constraint_row.contype::text = expected.constraint_type
         AND pg_catalog.pg_get_constraintdef(constraint_row.oid) = expected.exact_definition
         AND constraint_row.convalidated
         AND NOT constraint_row.condeferrable
         AND NOT constraint_row.condeferred
-        AND NOT constraint_row.connoinherit
+        AND constraint_row.connoinherit = expected.no_inherit
         AND constraint_row.conislocal
         AND constraint_row.coninhcount = 0
       ), false)
     FROM (VALUES
-      ('relationship_sources_relationship_id_source_type_source_id_key', 'u', 'UNIQUE (relationship_id, source_type, source_id)'),
-      ('relationship_sources_source_type_check', 'c', 'CHECK ((source_type = ANY (ARRAY[''loans''::text, ''expenses''::text])))')
-    ) AS expected(constraint_name, constraint_type, exact_definition)
+      ('relationship_sources_relationship_id_source_type_source_id_key', 'u', 'UNIQUE (relationship_id, source_type, source_id)', true),
+      ('relationship_sources_source_type_check', 'c', 'CHECK ((source_type = ANY (ARRAY[''loans''::text, ''expenses''::text])))', false)
+    ) AS expected(constraint_name, constraint_type, exact_definition, no_inherit)
     LEFT JOIN pg_catalog.pg_constraint AS constraint_row
       ON constraint_row.conrelid = 'public.relationship_sources'::pg_catalog.regclass
      AND constraint_row.conname = expected.constraint_name
@@ -194,19 +194,19 @@ BEGIN
     JOIN pg_catalog.pg_class AS relation
       ON relation.oid = pg_catalog.to_regclass('public.' || expected.relation_name)
     WHERE NOT (
-      SELECT pg_catalog.count(*) = CASE WHEN expected.service_dml THEN 11 ELSE 7 END
+      SELECT pg_catalog.count(*) = CASE WHEN expected.service_dml THEN 12 ELSE 8 END
         AND pg_catalog.count(*) FILTER (
           WHERE acl.grantee = pg_catalog.to_regrole('postgres')::oid
             AND acl.grantor = pg_catalog.to_regrole('postgres')::oid
-            AND acl.privilege_type = ANY(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'])
-            AND NOT acl.is_grantable) = 7
+            AND acl.privilege_type = ANY(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN'])
+            AND NOT acl.is_grantable) = 8
         AND pg_catalog.count(*) FILTER (
           WHERE acl.grantee = pg_catalog.to_regrole('service_role')::oid
             AND acl.grantor = pg_catalog.to_regrole('postgres')::oid
             AND acl.privilege_type = ANY(ARRAY['SELECT','INSERT','UPDATE','DELETE'])
             AND NOT acl.is_grantable) = CASE WHEN expected.service_dml THEN 4 ELSE 0 END
       FROM pg_catalog.aclexplode(
-        pg_catalog.coalesce(relation.relacl, pg_catalog.acldefault('r', relation.relowner))
+        COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner))
       ) AS acl
     )
   ) THEN
@@ -254,7 +254,7 @@ BEGIN
       WHERE constraint_row.contype = 'f'
     )
     SELECT pg_catalog.count(*) = 47
-      AND pg_catalog.coalesce(pg_catalog.bool_and(
+      AND COALESCE(pg_catalog.bool_and(
         expected.relation_schema IS NOT NULL
         AND actual.relation_schema IS NOT NULL
         AND actual.exact_definition = expected.exact_definition
@@ -288,7 +288,7 @@ BEGIN
         (trigger_row.tgconstraint <> 0) AS is_constraint,
         trigger_row.tgdeferrable,
         trigger_row.tginitdeferred,
-        pg_catalog.coalesce((
+        COALESCE((
           SELECT pg_catalog.array_agg(attribute.attname::text ORDER BY attribute.attname)
           FROM pg_catalog.unnest(trigger_row.tgattr::smallint[]) AS trigger_attribute(attnum)
           JOIN pg_catalog.pg_attribute AS attribute
@@ -299,8 +299,13 @@ BEGIN
         trigger_row.tgnargs,
         pg_catalog.octet_length(trigger_row.tgargs) AS argument_bytes,
         pg_catalog.regexp_replace(
-          pg_catalog.lower(pg_catalog.coalesce(
-            pg_catalog.pg_get_expr(trigger_row.tgqual, trigger_row.tgrelid, false),
+          pg_catalog.lower(COALESCE(
+            (
+              pg_catalog.regexp_match(
+                pg_catalog.pg_get_triggerdef(trigger_row.oid, false),
+                E' WHEN \\((.*)\\) EXECUTE FUNCTION '
+              )
+            )[1],
             ''
           )),
           '[[:space:]()]', '', 'g'
@@ -321,7 +326,7 @@ BEGIN
         AND trigger_row.tgenabled <> 'D'
     )
     SELECT pg_catalog.count(*) = 39
-      AND pg_catalog.coalesce(pg_catalog.bool_and(
+      AND COALESCE(pg_catalog.bool_and(
         expected.relation_name IS NOT NULL
         AND actual.relation_name IS NOT NULL
         AND actual.function_signature = expected.function_signature
@@ -376,7 +381,7 @@ actual_sql173_function_identities AS MATERIALIZED (
 ),
 predecessor_function_identity_state AS (
   SELECT pg_catalog.count(*) = 3
-    AND pg_catalog.coalesce(pg_catalog.bool_and(
+    AND COALESCE(pg_catalog.bool_and(
       expected.signature IS NOT NULL
       AND actual.function_oid = pg_catalog.to_regprocedure(expected.signature)
     ), false) AS ok
@@ -389,7 +394,7 @@ predecessor_function_identity_state AS (
 ),
 installed_function_identity_state AS (
   SELECT pg_catalog.count(*) = 13
-    AND pg_catalog.coalesce(pg_catalog.bool_and(
+    AND COALESCE(pg_catalog.bool_and(
       expected.signature IS NOT NULL
       AND actual.function_oid = pg_catalog.to_regprocedure(expected.signature)
     ), false) AS ok
@@ -423,7 +428,7 @@ installed_function_identity_state AS (
         ('public.expense_delete_own_unsettled_expense(uuid,uuid,bigint,uuid)', ARRAY['p_actor_id','p_expense_id','p_expected_financial_version','p_request_id']::text[], 'v', 'jsonb', true, 'plpgsql')
     )
     SELECT pg_catalog.count(*) = 13
-      AND pg_catalog.coalesce(pg_catalog.bool_and(
+      AND COALESCE(pg_catalog.bool_and(
         namespace.nspname = 'public'
         AND routine.prokind = 'f'
         AND routine.prosecdef = expected.security_definer
@@ -470,7 +475,7 @@ installed_function_identity_state AS (
         ('public.expense_delete_own_unsettled_expense(uuid,uuid,bigint,uuid)', true)
     )
     SELECT pg_catalog.count(*) = 13
-      AND pg_catalog.coalesce(pg_catalog.bool_and((
+      AND COALESCE(pg_catalog.bool_and((
         SELECT pg_catalog.count(*) = CASE WHEN expected.service_execute THEN 2 ELSE 1 END
           AND pg_catalog.count(*) FILTER (
             WHERE acl.grantee = pg_catalog.to_regrole('postgres')::oid
@@ -485,7 +490,7 @@ installed_function_identity_state AS (
               AND NOT acl.is_grantable
           ) = CASE WHEN expected.service_execute THEN 1 ELSE 0 END
         FROM pg_catalog.aclexplode(
-          pg_catalog.coalesce(
+          COALESCE(
             routine.proacl,
             pg_catalog.acldefault('f', routine.proowner)
           )
@@ -500,19 +505,19 @@ installed_function_identity_state AS (
 
   IF (
     SELECT pg_catalog.count(*) = 2
-      AND pg_catalog.coalesce(pg_catalog.bool_and(
+      AND COALESCE(pg_catalog.bool_and(
           relation.relkind = 'r'
           AND relation.relpersistence = 'p'
           AND NOT relation.relispartition
           AND relation.relreplident = 'd'
           AND relation.reltablespace = 0
-          AND pg_catalog.cardinality(pg_catalog.coalesce(
+          AND pg_catalog.cardinality(COALESCE(
             relation.reloptions, ARRAY[]::text[]
           )) = 0
           AND relation.relrowsecurity
         AND relation.relforcerowsecurity
         AND pg_catalog.pg_get_userbyid(relation.relowner) = 'postgres'
-        AND pg_catalog.coalesce(
+        AND COALESCE(
           relation.relacl,
           pg_catalog.acldefault('r', relation.relowner)
         ) = pg_catalog.acldefault('r', relation.relowner)
@@ -578,7 +583,7 @@ installed_function_identity_state AS (
     ),
     private_column_state AS (
       SELECT pg_catalog.count(*) = 5
-        AND pg_catalog.coalesce(pg_catalog.bool_and(
+        AND COALESCE(pg_catalog.bool_and(
           expected.relation_name IS NOT NULL
           AND actual.relation_name IS NOT NULL
           AND actual.data_type = expected.data_type
@@ -623,7 +628,7 @@ installed_function_identity_state AS (
     ),
     private_constraint_state AS (
       SELECT pg_catalog.count(*) = 2
-        AND pg_catalog.coalesce(pg_catalog.bool_and(
+        AND COALESCE(pg_catalog.bool_and(
           expected.relation_name IS NOT NULL
           AND actual.relation_name IS NOT NULL
           AND actual.exact_definition = expected.exact_definition
@@ -692,7 +697,7 @@ installed_function_identity_state AS (
     ),
     private_index_state AS (
       SELECT pg_catalog.count(*) = 2
-        AND pg_catalog.coalesce(pg_catalog.bool_and(
+        AND COALESCE(pg_catalog.bool_and(
           expected.relation_name IS NOT NULL
           AND actual.relation_name IS NOT NULL
           AND actual.exact_definition = expected.exact_definition
@@ -716,7 +721,7 @@ installed_function_identity_state AS (
           AND actual.index_owner = 'postgres'
           AND actual.reltablespace = 0
           AND actual.relacl IS NULL
-          AND pg_catalog.cardinality(pg_catalog.coalesce(
+          AND pg_catalog.cardinality(COALESCE(
             actual.reloptions, ARRAY[]::text[]
           )) = 0
         ), false) AS ok
@@ -777,16 +782,16 @@ installed_function_identity_state AS (
          WHERE routine.oid = 'public.expense_insert_relationship_source(uuid,uuid,uuid,uuid)'::pg_catalog.regprocedure) <> 'e2415ab3ef58b15709627f530f0f6003'
      OR (SELECT pg_catalog.md5(pg_catalog.replace(routine.prosrc, E'\r\n', E'\n'))
          FROM pg_catalog.pg_proc AS routine
-         WHERE routine.oid = 'public.expense_hard_delete_receipt_shape_known(text,jsonb)'::pg_catalog.regprocedure) <> 'be40706024dc294149e0ef0e9a78dce4'
+         WHERE routine.oid = 'public.expense_hard_delete_receipt_shape_known(text,jsonb)'::pg_catalog.regprocedure) <> 'edb8a21d01ffdbbb8e9aa2b94c7c2594'
      OR (SELECT pg_catalog.md5(pg_catalog.replace(routine.prosrc, E'\r\n', E'\n'))
          FROM pg_catalog.pg_proc AS routine
-         WHERE routine.oid = 'public.expense_hard_delete_receipts_classified(uuid,uuid,boolean,uuid[])'::pg_catalog.regprocedure) <> 'fc64f596cff952e10437e0e34f40db36'
+         WHERE routine.oid = 'public.expense_hard_delete_receipts_classified(uuid,uuid,boolean,uuid[])'::pg_catalog.regprocedure) <> '9def695d70fc38b63011cb2bd12e2e67'
      OR (SELECT pg_catalog.md5(pg_catalog.replace(routine.prosrc, E'\r\n', E'\n'))
          FROM pg_catalog.pg_proc AS routine
-         WHERE routine.oid = 'public.expense_get_own_delete_capability(uuid,uuid)'::pg_catalog.regprocedure) <> '95ef7a58f5f2fb3c749317ced5e6ab4e'
+         WHERE routine.oid = 'public.expense_get_own_delete_capability(uuid,uuid)'::pg_catalog.regprocedure) <> 'ffbd530e2f759d85809a34045ac15a1e'
      OR (SELECT pg_catalog.md5(pg_catalog.replace(routine.prosrc, E'\r\n', E'\n'))
          FROM pg_catalog.pg_proc AS routine
-         WHERE routine.oid = 'public.expense_delete_own_unsettled_expense(uuid,uuid,bigint,uuid)'::pg_catalog.regprocedure) <> 'e495230536b9d5574d07c57de67a433b'
+         WHERE routine.oid = 'public.expense_delete_own_unsettled_expense(uuid,uuid,bigint,uuid)'::pg_catalog.regprocedure) <> 'acb41ca79ba1e5e7388c87f5aa60fb56'
      THEN
     RAISE EXCEPTION 'expense_sql173_postcondition_failed';
   END IF;
@@ -931,21 +936,21 @@ BEGIN
 
   IF (
     SELECT pg_catalog.count(*) = 2
-      AND pg_catalog.coalesce(pg_catalog.bool_and(
+      AND COALESCE(pg_catalog.bool_and(
         constraint_row.oid IS NOT NULL
         AND constraint_row.contype::text = expected.constraint_type
         AND pg_catalog.pg_get_constraintdef(constraint_row.oid) = expected.exact_definition
         AND constraint_row.convalidated
         AND NOT constraint_row.condeferrable
         AND NOT constraint_row.condeferred
-        AND NOT constraint_row.connoinherit
+        AND constraint_row.connoinherit = expected.no_inherit
         AND constraint_row.conislocal
         AND constraint_row.coninhcount = 0
       ), false)
     FROM (VALUES
-      ('relationship_sources_relationship_id_source_type_source_id_key', 'u', 'UNIQUE (relationship_id, source_type, source_id)'),
-      ('relationship_sources_source_type_check', 'c', 'CHECK ((source_type = ANY (ARRAY[''loans''::text, ''expenses''::text])))')
-    ) AS expected(constraint_name, constraint_type, exact_definition)
+      ('relationship_sources_relationship_id_source_type_source_id_key', 'u', 'UNIQUE (relationship_id, source_type, source_id)', true),
+      ('relationship_sources_source_type_check', 'c', 'CHECK ((source_type = ANY (ARRAY[''loans''::text, ''expenses''::text])))', false)
+    ) AS expected(constraint_name, constraint_type, exact_definition, no_inherit)
     LEFT JOIN pg_catalog.pg_constraint AS constraint_row
       ON constraint_row.conrelid = 'public.relationship_sources'::pg_catalog.regclass
      AND constraint_row.conname = expected.constraint_name
@@ -960,19 +965,19 @@ BEGIN
     JOIN pg_catalog.pg_class AS relation
       ON relation.oid = pg_catalog.to_regclass('public.' || expected.relation_name)
     WHERE NOT (
-      SELECT pg_catalog.count(*) = CASE WHEN expected.service_dml THEN 11 ELSE 7 END
+      SELECT pg_catalog.count(*) = CASE WHEN expected.service_dml THEN 12 ELSE 8 END
         AND pg_catalog.count(*) FILTER (
           WHERE acl.grantee = pg_catalog.to_regrole('postgres')::oid
             AND acl.grantor = pg_catalog.to_regrole('postgres')::oid
-            AND acl.privilege_type = ANY(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'])
-            AND NOT acl.is_grantable) = 7
+            AND acl.privilege_type = ANY(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN'])
+            AND NOT acl.is_grantable) = 8
         AND pg_catalog.count(*) FILTER (
           WHERE acl.grantee = pg_catalog.to_regrole('service_role')::oid
             AND acl.grantor = pg_catalog.to_regrole('postgres')::oid
             AND acl.privilege_type = ANY(ARRAY['SELECT','INSERT','UPDATE','DELETE'])
             AND NOT acl.is_grantable) = CASE WHEN expected.service_dml THEN 4 ELSE 0 END
       FROM pg_catalog.aclexplode(
-        pg_catalog.coalesce(relation.relacl, pg_catalog.acldefault('r', relation.relowner))
+        COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner))
       ) AS acl
     )
   ) THEN
@@ -1011,7 +1016,7 @@ actual_sql173_function_identities AS MATERIALIZED (
 ),
 predecessor_function_identity_state AS (
   SELECT pg_catalog.count(*) = 3
-    AND pg_catalog.coalesce(pg_catalog.bool_and(
+    AND COALESCE(pg_catalog.bool_and(
       expected.signature IS NOT NULL
       AND actual.function_oid = pg_catalog.to_regprocedure(expected.signature)
     ), false) AS ok
@@ -1024,7 +1029,7 @@ predecessor_function_identity_state AS (
 ),
 installed_function_identity_state AS (
   SELECT pg_catalog.count(*) = 13
-    AND pg_catalog.coalesce(pg_catalog.bool_and(
+    AND COALESCE(pg_catalog.bool_and(
       expected.signature IS NOT NULL
       AND actual.function_oid = pg_catalog.to_regprocedure(expected.signature)
     ), false) AS ok
@@ -1103,7 +1108,7 @@ installed_function_identity_state AS (
       WHERE constraint_row.contype = 'f'
     )
     SELECT pg_catalog.count(*) = 48
-      AND pg_catalog.coalesce(pg_catalog.bool_and(
+      AND COALESCE(pg_catalog.bool_and(
         expected.relation_schema IS NOT NULL
         AND actual.relation_schema IS NOT NULL
         AND actual.exact_definition = expected.exact_definition
@@ -1133,7 +1138,7 @@ installed_function_identity_state AS (
         (trigger_row.tgconstraint <> 0) AS is_constraint,
         trigger_row.tgdeferrable,
         trigger_row.tginitdeferred,
-        pg_catalog.coalesce((
+        COALESCE((
           SELECT pg_catalog.array_agg(attribute.attname::text ORDER BY attribute.attname)
           FROM pg_catalog.unnest(trigger_row.tgattr::smallint[]) AS trigger_attribute(attnum)
           JOIN pg_catalog.pg_attribute AS attribute
@@ -1144,8 +1149,13 @@ installed_function_identity_state AS (
         trigger_row.tgnargs,
         pg_catalog.octet_length(trigger_row.tgargs) AS argument_bytes,
         pg_catalog.regexp_replace(
-          pg_catalog.lower(pg_catalog.coalesce(
-            pg_catalog.pg_get_expr(trigger_row.tgqual, trigger_row.tgrelid, false),
+          pg_catalog.lower(COALESCE(
+            (
+              pg_catalog.regexp_match(
+                pg_catalog.pg_get_triggerdef(trigger_row.oid, false),
+                E' WHEN \\((.*)\\) EXECUTE FUNCTION '
+              )
+            )[1],
             ''
           )),
           '[[:space:]()]', '', 'g'
@@ -1166,7 +1176,7 @@ installed_function_identity_state AS (
         AND trigger_row.tgenabled <> 'D'
     )
     SELECT pg_catalog.count(*) = 35
-      AND pg_catalog.coalesce(pg_catalog.bool_and(
+      AND COALESCE(pg_catalog.bool_and(
         expected.relation_name IS NOT NULL
         AND actual.relation_name IS NOT NULL
         AND actual.function_signature = expected.function_signature

@@ -47,6 +47,40 @@ describe('SQL173 operator bundle', () => {
     expect(recovery).not.toMatch(/\bDROP\b[^;]+\bCASCADE\b/i)
   })
 
+  it('hardens only the exact legacy relationship_sources ACL overgrant', () => {
+    const hardening = read('harden-predecessor-acl.sql')
+    expect(hardening).toContain('BEGIN;')
+    expect(hardening).toContain('COMMIT;')
+    expect(hardening).toContain("pg_catalog.to_regclass('public.relationship_sources')")
+    expect(hardening).toContain("pg_catalog.to_regclass('public.expense_mutation_requests')")
+    expect(hardening).toContain(
+      "acl.grantee = pg_catalog.to_regrole('postgres')::oid",
+    )
+    expect(hardening).toContain(
+      "acl.grantor = pg_catalog.to_regrole('postgres')::oid",
+    )
+    expect(hardening).toContain('AND NOT acl.is_grantable')
+    expect(hardening).toContain('v_total_entries = 16')
+    expect(hardening).toContain('v_total_entries = 12')
+    expect(hardening).toContain('v_owner_entries = 8')
+    expect(hardening).toContain('v_service_dml_entries = 4')
+    expect(hardening).toContain('v_service_all_entries = 8')
+    expect(hardening).toContain('v_service_all_entries = 4')
+    expect(hardening).toContain(
+      'expense_sql173_acl_hardening_postcondition_failed',
+    )
+    expect(hardening).toMatch(
+      /REVOKE TRUNCATE, REFERENCES, TRIGGER, MAINTAIN\s+ON TABLE public\.relationship_sources\s+FROM service_role;/,
+    )
+    expect(hardening).not.toMatch(/REVOKE ALL/i)
+    expect(hardening).not.toMatch(
+      /\b(?:INSERT INTO|UPDATE|DELETE FROM|TRUNCATE)\s+public\./i,
+    )
+    expect(hardening).not.toMatch(
+      /(?:PERFORM|SELECT)\s+public\.expense_delete_own_unsettled_expense\s*\(/i,
+    )
+  })
+
   it.each(['preflight.sql', 'rehearse-migration.sql', 'postflight.sql', 'recovery.sql'])(
     '%s freezes the exact SQL173 FK and trigger closure',
     (name) => {
@@ -64,7 +98,10 @@ describe('SQL173 operator bundle', () => {
       expect(source).toContain('tgdeferrable')
       expect(source).toContain('tginitdeferred')
       expect(source).toContain('tgattr')
-      expect(source).toContain('pg_get_expr(trigger_row.tgqual, trigger_row.tgrelid, false)')
+      expect(source).toContain('pg_get_triggerdef(trigger_row.oid, false)')
+      expect(source).not.toContain(
+        'pg_get_expr(trigger_row.tgqual, trigger_row.tgrelid, false)',
+      )
       expect(source).toContain("'old.user_idisnotnullandnew.user_idisnull'")
       expect(source).not.toContain('strpos(actual.trigger_definition')
       expect(source).toContain('expense_activity_audience')
@@ -112,6 +149,32 @@ describe('SQL173 operator bundle', () => {
       expect(source).toContain('actual.function_signature = expected.function_signature')
       expect(source).toContain('actual.trigger_type = expected.trigger_type')
       expect(source).toContain('actual.when_expression =')
+    }
+  })
+
+  it('freezes the PostgreSQL-version-aware predecessor constraint and ACL contract', () => {
+    for (const source of [
+      migration,
+      read('preflight.sql'),
+      read('rehearse-migration.sql'),
+      read('postflight.sql'),
+      read('recovery.sql'),
+    ]) {
+      expect(source).toContain(
+        "('relationship_sources_relationship_id_source_type_source_id_key', 'u', 'UNIQUE (relationship_id, source_type, source_id)', true)",
+      )
+      expect(source).toContain(
+        "('relationship_sources_source_type_check', 'c', 'CHECK ((source_type = ANY (ARRAY[''loans''::text, ''expenses''::text])))', false)",
+      )
+      expect(source).toContain(
+        'constraint_row.connoinherit = expected.no_inherit',
+      )
+      expect(source).toContain(
+        'CASE WHEN expected.service_dml THEN 12 ELSE 8 END',
+      )
+      expect(source).toContain(
+        "ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']",
+      )
     }
   })
 
