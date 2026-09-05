@@ -9,6 +9,7 @@ import type {
   ExpenseItemView,
   ExpenseParticipantOption,
   ExpenseEditRevisionStateView,
+  ExpenseDeleteCapabilityView,
 } from '@/lib/expenses/contracts'
 import type { ExpenseEventLinkManagementV2View } from '@/lib/events/contracts'
 import { calculateExpenseBalances, simplifySettlement } from '@/lib/expenses/balances'
@@ -42,6 +43,7 @@ export async function ExpenseItemDetail({
   eventIdentityCandidates = null,
   relationshipIdentityManagementState = { status: 'absent' },
   revisionState = { status: 'none', canOpen: false, openReason: 'unavailable' },
+  deleteCapability = { status: 'unavailable' },
 }: {
   group: ExpenseGroupView
   expense: ExpenseItemView
@@ -56,6 +58,7 @@ export async function ExpenseItemDetail({
   eventIdentityCandidates?: ExpenseEventIdentityCandidatesView | null
   relationshipIdentityManagementState?: ExpenseRelationshipIdentityManagementState
   revisionState?: ExpenseEditRevisionStateView
+  deleteCapability?: ExpenseDeleteCapabilityView
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const hasLockedRepayment = group.repayments.some(
@@ -443,7 +446,16 @@ export async function ExpenseItemDetail({
         </section>
       ) : null}
 
-      {view === 'review' && (canEdit || canCancel) ? <ExpenseItemActions expenseId={expense.id} canEdit={false} canCancel={canCancel} /> : null}
+      {((view === 'review' && (canEdit || canCancel))
+        || deleteCapability.status === 'available'
+        || deleteCapability.status === 'blocked') ? (
+        <ExpenseItemActions
+          expenseId={expense.id}
+          canEdit={false}
+          canCancel={view === 'review' && canCancel}
+          deleteCapability={deleteCapability}
+        />
+      ) : null}
     </div>
   )
 }

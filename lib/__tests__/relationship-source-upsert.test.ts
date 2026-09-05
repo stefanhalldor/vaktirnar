@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   checkFeatureAccess: vi.fn(),
   from: vi.fn(),
   getUserByEmail: vi.fn(),
+  rpc: vi.fn(),
 }))
 
 vi.mock('@/lib/loans/guard', () => ({
@@ -13,6 +14,7 @@ vi.mock('@/lib/loans/guard', () => ({
 vi.mock('@/lib/supabase/admin', () => ({
   getAdmin: vi.fn(() => ({
     from: mocks.from,
+    rpc: mocks.rpc,
     auth: { admin: { getUserByEmail: mocks.getUserByEmail } },
   })),
 }))
@@ -55,6 +57,7 @@ describe('upsertSourceRelationship', () => {
     vi.clearAllMocks()
     mocks.checkFeatureAccess.mockResolvedValue(true)
     mocks.getUserByEmail.mockResolvedValue({ data: { user: null } })
+    mocks.rpc.mockResolvedValue({ data: null, error: null })
   })
 
   it('uses the explicit consent-bound identity without looking up auth or overwriting private metadata', async () => {
@@ -65,12 +68,10 @@ describe('upsertSourceRelationship', () => {
         private_display_name: 'Einkanafn eiganda',
       },
     })
-    const sourceLookup = makeBuilder({ maybeData: null })
     const sourceInsert = makeBuilder()
 
     useTableQueues({
       relationships: [existingRelationship],
-      relationship_sources: [sourceLookup, sourceInsert],
     })
 
     await expect(upsertSourceRelationship({
@@ -84,15 +85,59 @@ describe('upsertSourceRelationship', () => {
       },
       sourceType: 'expenses',
       sourceId: 'expense-member-1',
+      sourceGroupId: 'expense-group-1',
     })).resolves.toBeUndefined()
 
     expect(mocks.getUserByEmail).not.toHaveBeenCalled()
     expect(existingRelationship.update).not.toHaveBeenCalled()
-    expect(sourceInsert.insert).toHaveBeenCalledWith({
-      relationship_id: 'relationship-1',
-      source_type: 'expenses',
-      source_id: 'expense-member-1',
+    expect(mocks.rpc).toHaveBeenCalledWith('expense_insert_relationship_source', {
+      p_owner_user_id: 'owner-1',
+      p_relationship_id: 'relationship-1',
+      p_group_id: 'expense-group-1',
+      p_member_id: 'expense-member-1',
     })
+    expect(sourceInsert.insert).not.toHaveBeenCalled()
+  })
+
+  it('does not fall back to an unlocked direct Expense-source insert when the guard RPC rejects', async () => {
+    const existingRelationship = makeBuilder({
+      maybeData: {
+        id: 'relationship-guarded',
+        counterpart_user_id: 'accepted-user',
+        private_display_name: null,
+      },
+    })
+    const sourceLookup = makeBuilder({ maybeData: null })
+    const directSourceInsert = makeBuilder()
+    useTableQueues({
+      relationships: [existingRelationship],
+      relationship_sources: [sourceLookup, directSourceInsert],
+    })
+    mocks.rpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: 'P0001', message: 'relationship_expense_source_invalid' },
+    })
+
+    await expect(upsertSourceRelationship({
+      ownerUserId: 'owner-guarded',
+      ownerEmail: 'owner@example.com',
+      counterpart: {
+        mode: 'verified-counterpart',
+        userId: 'accepted-user',
+        emailCanonical: 'accepted@example.com',
+      },
+      sourceType: 'expenses',
+      sourceId: 'expense-member-guarded',
+      sourceGroupId: 'expense-group-guarded',
+    })).resolves.toBeUndefined()
+
+    expect(mocks.rpc).toHaveBeenCalledWith('expense_insert_relationship_source', {
+      p_owner_user_id: 'owner-guarded',
+      p_relationship_id: 'relationship-guarded',
+      p_group_id: 'expense-group-guarded',
+      p_member_id: 'expense-member-guarded',
+    })
+    expect(directSourceInsert.insert).not.toHaveBeenCalled()
   })
 
   it('keeps the Loans wrapper email-lookup contract and writes a loans source', async () => {
@@ -131,6 +176,7 @@ describe('upsertSourceRelationship', () => {
       source_type: 'loans',
       source_id: 'loan-1',
     })
+    expect(mocks.rpc).not.toHaveBeenCalled()
   })
 
   it('enriches the verified counterpart that wins a concurrent insert race', async () => {
@@ -145,7 +191,6 @@ describe('upsertSourceRelationship', () => {
       },
     })
     const nameUpdate = makeBuilder()
-    const sourceLookup = makeBuilder({ maybeData: null })
     const sourceInsert = makeBuilder()
 
     useTableQueues({
@@ -156,7 +201,6 @@ describe('upsertSourceRelationship', () => {
         concurrentCounterpart,
         nameUpdate,
       ],
-      relationship_sources: [sourceLookup, sourceInsert],
     })
 
     await upsertSourceRelationship({
@@ -170,14 +214,17 @@ describe('upsertSourceRelationship', () => {
       },
       sourceType: 'expenses',
       sourceId: 'expense-member-race-user',
+      sourceGroupId: 'expense-group-race-user',
     })
 
     expect(nameUpdate.update).toHaveBeenCalledWith({ private_display_name: 'Einkanafn' })
-    expect(sourceInsert.insert).toHaveBeenCalledWith({
-      relationship_id: 'relationship-race-user',
-      source_type: 'expenses',
-      source_id: 'expense-member-race-user',
+    expect(mocks.rpc).toHaveBeenCalledWith('expense_insert_relationship_source', {
+      p_owner_user_id: 'owner-race',
+      p_relationship_id: 'relationship-race-user',
+      p_group_id: 'expense-group-race-user',
+      p_member_id: 'expense-member-race-user',
     })
+    expect(sourceInsert.insert).not.toHaveBeenCalled()
   })
 
   it('links and names a compatible email row that wins a concurrent insert race', async () => {
@@ -200,7 +247,6 @@ describe('upsertSourceRelationship', () => {
       },
     })
     const nameUpdate = makeBuilder()
-    const sourceLookup = makeBuilder({ maybeData: null })
     const sourceInsert = makeBuilder()
 
     useTableQueues({
@@ -213,7 +259,6 @@ describe('upsertSourceRelationship', () => {
         counterpartUpdate,
         nameUpdate,
       ],
-      relationship_sources: [sourceLookup, sourceInsert],
     })
 
     await upsertSourceRelationship({
@@ -227,17 +272,20 @@ describe('upsertSourceRelationship', () => {
       },
       sourceType: 'expenses',
       sourceId: 'expense-member-race-email',
+      sourceGroupId: 'expense-group-race-email',
     })
 
     expect(counterpartUpdate.update).toHaveBeenCalledWith({
       counterpart_user_id: 'accepted-user',
     })
     expect(nameUpdate.update).toHaveBeenCalledWith({ private_display_name: 'Einkanafn' })
-    expect(sourceInsert.insert).toHaveBeenCalledWith({
-      relationship_id: 'relationship-race-email',
-      source_type: 'expenses',
-      source_id: 'expense-member-race-email',
+    expect(mocks.rpc).toHaveBeenCalledWith('expense_insert_relationship_source', {
+      p_owner_user_id: 'owner-race',
+      p_relationship_id: 'relationship-race-email',
+      p_group_id: 'expense-group-race-email',
+      p_member_id: 'expense-member-race-email',
     })
+    expect(sourceInsert.insert).not.toHaveBeenCalled()
   })
 
   it('never throws or logs identifiers when best-effort persistence fails', async () => {
@@ -254,6 +302,7 @@ describe('upsertSourceRelationship', () => {
       },
       sourceType: 'expenses',
       sourceId: 'expense-member-2',
+      sourceGroupId: 'expense-group-2',
     })).resolves.toBeUndefined()
 
     expect(errorSpy).toHaveBeenCalledWith('[relationships] source upsert failed')

@@ -22,6 +22,7 @@ vi.mock('@/lib/expenses/persistence.server', () => ({
 import {
   addExpenseGroupMember,
   cancelExpense,
+  deleteOwnUnsettledExpense,
   createExpense,
   createExpenseGroup,
   deactivateExpensePaymentPreference,
@@ -53,6 +54,7 @@ describe('expense server-action guard placement', () => {
     ['leaveExpenseGroup', leaveExpenseGroup],
     ['removeExpenseGroupMember', removeExpenseGroupMember],
     ['cancelExpense', cancelExpense],
+    ['deleteOwnUnsettledExpense', deleteOwnUnsettledExpense],
     ['setExpenseGroupStatus', setExpenseGroupStatus],
     ['reportExpenseRepayment', reportExpenseRepayment],
     ['transitionExpenseRepayment', transitionExpenseRepayment],

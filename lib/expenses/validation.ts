@@ -295,6 +295,12 @@ export const CancelExpenseSchema = z.object({
   request_id: requestId,
 })
 
+export const DeleteOwnUnsettledExpenseSchema = z.object({
+  expense_id: uuid,
+  expected_financial_version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER - 1),
+  request_id: requestId,
+}).strict()
+
 export const LinkExpenseGuestMemberSchema = z.object({
   group_id: uuid,
   member_id: uuid,

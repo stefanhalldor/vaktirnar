@@ -23,14 +23,22 @@ export type RelationshipSourceCounterpart =
       privateDisplayName?: string | null
     }
 
-export type UpsertSourceRelationshipInput = {
+type UpsertSourceRelationshipInputBase = {
   ownerUserId: string
   ownerEmail: string
   counterpart: RelationshipSourceCounterpart
-  sourceType: RelationshipSourceType
   /** The domain-owned UUID, for example a loan or expense member ID. */
   sourceId: string
 }
+
+export type UpsertSourceRelationshipInput = UpsertSourceRelationshipInputBase & (
+  | { sourceType: 'loans' }
+  | {
+      sourceType: 'expenses'
+      /** Exact group proven by the accepted invitation RPC. */
+      sourceGroupId: string
+    }
+)
 
 type RelationshipIdentity = {
   counterpartUserId: string | null
@@ -287,6 +295,18 @@ export async function upsertSourceRelationship(
     const relationshipId = await findOrCreateRelationship(admin, input.ownerUserId, identity)
     if (!relationshipId) return
 
+    if (input.sourceType === 'expenses') {
+      // The database RPC holds the exact original group lock through insertion.
+      // This prevents a late best-effort write after a dedicated group delete.
+      await admin.rpc('expense_insert_relationship_source', {
+        p_owner_user_id: input.ownerUserId,
+        p_relationship_id: relationshipId,
+        p_group_id: input.sourceGroupId,
+        p_member_id: input.sourceId,
+      })
+      return
+    }
+
     const { data: existingSource, error } = await admin
       .from('relationship_sources')
       .select('id')
@@ -299,7 +319,7 @@ export async function upsertSourceRelationship(
 
     await admin.from('relationship_sources').insert({
       relationship_id: relationshipId,
-      source_type: input.sourceType,
+      source_type: 'loans',
       source_id: input.sourceId,
     })
   } catch {

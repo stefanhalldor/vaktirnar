@@ -26,6 +26,7 @@ import {
   AttachExpenseToEventSchema,
   BindExpenseMemberEventIdentitySchema,
   CancelExpenseSchema,
+  DeleteOwnUnsettledExpenseSchema,
   CancelExpenseMemberInvitationSchema,
   CreateExpenseGroupSchema,
   CreateExpenseSchema,
@@ -108,6 +109,8 @@ import {
 } from './repository.server'
 
 const EXPENSES_PATH = '/auth-mvp/utlagt-og-endurgreitt'
+const EXPENSE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const EXPENSE_EVENT_DETAIL_PATTERN = '/auth-mvp/vidburdir/[eventId]'
 
 function revalidateExpensePaths(
   groupId?: string,
@@ -124,6 +127,10 @@ function revalidateExpensePaths(
   if (eventId) revalidatePath(`/auth-mvp/vidburdir/${eventId}`)
 }
 
+function revalidateExpenseEventRouteFamily() {
+  revalidatePath(EXPENSE_EVENT_DETAIL_PATTERN, 'page')
+}
+
 function actionError(error: unknown): ExpenseActionResult<never> {
   if (error instanceof ExpenseDomainError) {
     return { ok: false, error: 'invalid_input' }
@@ -131,6 +138,9 @@ function actionError(error: unknown): ExpenseActionResult<never> {
   const message = error instanceof Error ? error.message.toLowerCase() : ''
   const code: ExpenseActionErrorCode =
     message.includes('expense_legacy_edit_draft_unbound') ? 'legacy_edit_draft_unbound'
+      : message.includes('expense_delete_open_revision') ? 'delete_open_revision'
+      : message.includes('expense_delete_settlement_history') ? 'delete_settlement_history'
+      : message.includes('expense_delete_legacy_event_context') ? 'not_allowed'
       : message.includes('expense_edit_revision_open') ? 'revision_open'
       : message.includes('expense_share_has_durable_reference') ? 'referenced_participant'
       : message.includes('recipient_unavailable') ? 'recipient_unavailable'
@@ -202,6 +212,60 @@ function resultObject(data: unknown): Record<string, unknown> {
     return data[0] as Record<string, unknown>
   }
   return {}
+}
+
+function parseExpenseDeleteResult(
+  data: unknown,
+  expectedFinancialVersion: number,
+): { groupId: string; financialVersion: number } | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+  const result = data as Record<string, unknown>
+  if (Object.keys(result).sort().join(',') !== 'deleted,financial_version,group_id'
+    || result.deleted !== true
+    || typeof result.group_id !== 'string'
+    || !EXPENSE_UUID_PATTERN.test(result.group_id)
+    || typeof result.financial_version !== 'number'
+    || !Number.isSafeInteger(result.financial_version)
+    || result.financial_version !== expectedFinancialVersion + 1) {
+    return null
+  }
+  return {
+    groupId: result.group_id,
+    financialVersion: result.financial_version,
+  }
+}
+
+const DEFINITIVE_DELETE_FAILURE_REASONS = new Set([
+  'expense_unavailable',
+  'expense_invalid_input',
+  'expense_not_found',
+  'expense_delete_not_allowed',
+  'expense_delete_one_off_owner_conflict',
+  'expense_delete_one_off_shape_conflict',
+  'expense_delete_legacy_event_context',
+  'expense_delete_open_revision',
+  'expense_delete_settlement_history',
+  'expense_financial_version_conflict',
+  'expense_delete_conflict',
+  'expense_delete_group_conflict',
+  'expense_delete_postcondition_failed',
+  'expense_idempotency_conflict',
+  'expense_idempotency_incomplete',
+])
+
+function isDefinitiveDeleteFailure(error: unknown): boolean {
+  return error instanceof ExpenseRpcError
+    && (error.sqlState !== 'unknown' || DEFINITIVE_DELETE_FAILURE_REASONS.has(error.reason))
+}
+
+function deleteOutcomeUnknown(expenseId: string): ExpenseActionResult {
+  try {
+    revalidateExpensePaths(undefined, expenseId)
+    revalidateExpenseEventRouteFamily()
+  } catch {
+    console.error('[expenses] delete outcome cache revalidation failed')
+  }
+  return { ok: false, error: 'delete_outcome_unknown' }
 }
 
 function resultPositiveSafeInteger(value: unknown): number | null {
@@ -2029,7 +2093,7 @@ export async function respondExpenseMemberInvitation(
       const counterpartUserId = typeof result.counterpart_user_id === 'string'
         ? result.counterpart_user_id
         : ''
-      if (ownerUserId && memberId && counterpartUserId) {
+      if (groupId && ownerUserId && memberId && counterpartUserId) {
         try {
           const [{ data: ownerData }, { data: invitationData, error: invitationError }] = await Promise.all([
             admin.auth.admin.getUserById(ownerUserId),
@@ -2061,6 +2125,7 @@ export async function respondExpenseMemberInvitation(
               },
               sourceType: 'expenses',
               sourceId: memberId,
+              sourceGroupId: groupId,
             })
           }
         } catch {
@@ -2305,6 +2370,37 @@ export async function cancelExpense(input: unknown): Promise<ExpenseActionResult
     return { ok: true }
   } catch (error) {
     console.error('[expenses] cancel expense failed')
+    return actionError(error)
+  }
+}
+
+export async function deleteOwnUnsettledExpense(input: unknown): Promise<ExpenseActionResult> {
+  const { user } = await guardExpenseAccess()
+  let parsedExpenseId: string | null = null
+  try {
+    const parsed = DeleteOwnUnsettledExpenseSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    parsedExpenseId = parsed.data.expense_id
+    const { data, error } = await getAdmin().rpc('expense_delete_own_unsettled_expense', {
+      p_actor_id: user.id,
+      p_expense_id: parsed.data.expense_id,
+      p_expected_financial_version: parsed.data.expected_financial_version,
+      p_request_id: parsed.data.request_id,
+    })
+    if (error) rpcError(error)
+    const result = parseExpenseDeleteResult(data, parsed.data.expected_financial_version)
+    if (!result) {
+      console.error('[expenses] delete own unsettled expense outcome unavailable')
+      return deleteOutcomeUnknown(parsed.data.expense_id)
+    }
+    revalidateExpensePaths(result.groupId, parsed.data.expense_id)
+    revalidateExpenseEventRouteFamily()
+    return { ok: true }
+  } catch (error) {
+    console.error('[expenses] delete own unsettled expense failed')
+    if (parsedExpenseId && !isDefinitiveDeleteFailure(error)) {
+      return deleteOutcomeUnknown(parsedExpenseId)
+    }
     return actionError(error)
   }
 }

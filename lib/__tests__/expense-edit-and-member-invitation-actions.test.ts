@@ -57,6 +57,7 @@ import {
   bindExpenseMemberEventIdentity,
   bindExpenseMemberRelationshipIdentity,
   cancelExpenseMemberInvitation,
+  deleteOwnUnsettledExpense,
   discardLegacyExpenseEditDraft,
   disputeExpenseClaim,
   linkExpenseGuestMember,
@@ -190,6 +191,139 @@ beforeEach(() => {
       status: 'active',
     },
   ])
+})
+
+describe('creator hard-delete action', () => {
+  const input = {
+    expense_id: EXPENSE_ID,
+    expected_financial_version: 7,
+    request_id: REQUEST_ID,
+  }
+
+  it('passes only the guarded actor and sealed identifiers/version to the runtime RPC', async () => {
+    setRpcResponses({
+      expense_delete_own_unsettled_expense: {
+        data: { deleted: true, group_id: GROUP_ID, financial_version: 8 },
+        error: null,
+      },
+    })
+
+    await expect(deleteOwnUnsettledExpense(input)).resolves.toEqual({ ok: true })
+    expect(mockRpc).toHaveBeenCalledWith('expense_delete_own_unsettled_expense', {
+      p_actor_id: ACTOR_ID,
+      p_expense_id: EXPENSE_ID,
+      p_expected_financial_version: 7,
+      p_request_id: REQUEST_ID,
+    })
+    expect(JSON.stringify(mockRpc.mock.calls)).not.toMatch(/title|amount|participant|email|payload/i)
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/auth-mvp/vidburdir/[eventId]', 'page')
+  })
+
+  it('accepts the last safe successor at MAX_SAFE_INTEGER', async () => {
+    const boundaryInput = {
+      ...input,
+      expected_financial_version: Number.MAX_SAFE_INTEGER - 1,
+    }
+    setRpcResponses({
+      expense_delete_own_unsettled_expense: {
+        data: {
+          deleted: true,
+          group_id: GROUP_ID,
+          financial_version: Number.MAX_SAFE_INTEGER,
+        },
+        error: null,
+      },
+    })
+
+    await expect(deleteOwnUnsettledExpense(boundaryInput)).resolves.toEqual({ ok: true })
+  })
+
+  it.each([
+    ['expense_delete_open_revision', 'delete_open_revision'],
+    ['expense_delete_settlement_history', 'delete_settlement_history'],
+    ['expense_financial_version_conflict', 'conflict'],
+    ['expense_delete_not_allowed', 'not_allowed'],
+  ] as const)('maps %s to the bounded %s result', async (message, expected) => {
+    setRpcResponses({
+      expense_delete_own_unsettled_expense: {
+        data: null,
+        error: { message },
+      },
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await expect(deleteOwnUnsettledExpense(input)).resolves.toEqual({ ok: false, error: expected })
+  })
+
+  it.each([
+    {
+      label: 'extra key',
+      data: { deleted: true, group_id: GROUP_ID, financial_version: 8, title: 'must not escape' },
+    },
+    {
+      label: 'array wrapper',
+      data: [{ deleted: true, group_id: GROUP_ID, financial_version: 8 }],
+    },
+    {
+      label: 'null version',
+      data: { deleted: true, group_id: GROUP_ID, financial_version: null },
+    },
+    {
+      label: 'string version',
+      data: { deleted: true, group_id: GROUP_ID, financial_version: '8' },
+    },
+    {
+      label: 'boolean version',
+      data: { deleted: true, group_id: GROUP_ID, financial_version: true },
+    },
+    {
+      label: 'wrong successor',
+      data: { deleted: true, group_id: GROUP_ID, financial_version: 9 },
+    },
+    {
+      label: 'empty group id',
+      data: { deleted: true, group_id: '', financial_version: 8 },
+    },
+    {
+      label: 'invalid group id',
+      data: { deleted: true, group_id: 'not-a-uuid', financial_version: 8 },
+    },
+  ])('fails closed on malformed success: $label', async ({ data }) => {
+    setRpcResponses({
+      expense_delete_own_unsettled_expense: {
+        data,
+        error: null,
+      },
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await expect(deleteOwnUnsettledExpense(input)).resolves.toEqual({
+      ok: false,
+      error: 'delete_outcome_unknown',
+    })
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/auth-mvp/vidburdir/[eventId]', 'page')
+  })
+
+  it('classifies a rejected RPC transport as an uncertain destructive outcome', async () => {
+    mockRpc.mockRejectedValueOnce(new Error('network reset after request'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(deleteOwnUnsettledExpense(input)).resolves.toEqual({
+      ok: false,
+      error: 'delete_outcome_unknown',
+    })
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/auth-mvp/vidburdir/[eventId]', 'page')
+  })
+
+  it.each([
+    { ...input, unexpected: true },
+    { ...input, expected_financial_version: Number.MAX_SAFE_INTEGER },
+    { ...input, expected_financial_version: Number.MAX_SAFE_INTEGER + 1 },
+  ])('rejects unsafe or non-exact delete input before the RPC: %#', async (invalidInput) => {
+    await expect(deleteOwnUnsettledExpense(invalidInput)).resolves.toEqual({
+      ok: false,
+      error: 'invalid_input',
+    })
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
 })
 
 describe('canonical identity and claim actions', () => {
@@ -873,6 +1007,7 @@ describe('expense guest-member invitations', () => {
       },
       sourceType: 'expenses',
       sourceId: GUEST_MEMBER_ID,
+      sourceGroupId: GROUP_ID,
     })
     expect(result).toEqual({
       ok: true,

@@ -1999,6 +1999,17 @@
         "cancel": "Fella útgjald niður",
         "cancelConfirm": "Viltu fella útgjaldið niður? Sagan verður varðveitt.",
         "cancelling": "Felli niður...",
+        "delete": "Eyða kostnaði",
+        "deleteDisclosure": "Öllum upplýsingum um þennan kostnað, skiptingu hans og tengda sögu verður eytt varanlega. Þetta er ekki hægt að afturkalla.",
+        "confirmDelete": "Eyða kostnaði",
+        "deleting": "Eyði kostnaði...",
+        "keep": "Halda kostnaði",
+        "deleteBlocked": {
+          "not_active": "Aðeins er hægt að eyða virkum kostnaði í virkum hópi.",
+          "open_revision": "Fjarlægðu fyrst opin breytingadrög áður en kostnaðinum er eytt.",
+          "settlement_history": "Ekki er hægt að eyða kostnaði eftir að uppgjör hefur hafist í hópnum.",
+          "unsafe_context": "Ekki er hægt að eyða þessum kostnaði með öruggum hætti."
+        },
         "cancelled": "Fellt niður",
         "active": "Virkt",
         "savedViews": {
@@ -2252,6 +2263,9 @@
         "save_failed": "Ekki tókst að vista. Reyndu aftur.",
         "load_failed": "Ekki tókst að sækja gögnin.",
         "revision_open": "Kostnaðurinn er í breytingu. Prófaðu aftur þegar ný skipting hefur verið staðfest.",
+        "delete_open_revision": "Fjarlægðu opin breytingadrög og reyndu síðan aftur.",
+        "delete_settlement_history": "Ekki er hægt að eyða kostnaði eftir að uppgjör hefur hafist í hópnum.",
+        "delete_outcome_unknown": "Ekki tókst að staðfesta hvort kostnaðinum var eytt. Ekki reyna að eyða honum aftur strax. Endurhladdu síðuna og athugaðu stöðuna fyrst.",
         "feature_disabled": "Þessi Teskeið er ekki virk fyrir þig.",
         "recipient_unavailable": "Ekki er hægt að senda boð á þetta netfang enn. Virkja þarf „Útlagt og endurgreitt“ fyrir netfangið í admin fyrst.",
         "delivery_failed": "Boðið var vistað en sending tókst ekki. Reyndu að senda aftur.",

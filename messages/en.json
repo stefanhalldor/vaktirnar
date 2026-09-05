@@ -1995,6 +1995,17 @@
         "cancel": "Cancel expense",
         "cancelConfirm": "Cancel this expense? Its history will be preserved.",
         "cancelling": "Cancelling...",
+        "delete": "Delete expense",
+        "deleteDisclosure": "All information about this expense, its allocation and related history will be permanently deleted. This cannot be undone.",
+        "confirmDelete": "Delete expense",
+        "deleting": "Deleting expense...",
+        "keep": "Keep expense",
+        "deleteBlocked": {
+          "not_active": "Only an active expense in an active group can be deleted.",
+          "open_revision": "Remove the open edit draft before deleting this expense.",
+          "settlement_history": "This expense cannot be deleted after settlement has started in the group.",
+          "unsafe_context": "This expense cannot be deleted safely."
+        },
         "cancelled": "Cancelled",
         "active": "Active",
         "savedViews": {
@@ -2248,6 +2259,9 @@
         "save_failed": "Save failed. Please try again.",
         "load_failed": "The data could not be loaded.",
         "revision_open": "This expense is being edited. Try again after the new allocation is confirmed.",
+        "delete_open_revision": "Remove the open edit draft, then try again.",
+        "delete_settlement_history": "This expense cannot be deleted after settlement has started in the group.",
+        "delete_outcome_unknown": "We could not confirm whether the expense was deleted. Do not try to delete it again yet. Reload the page and check its current state first.",
         "feature_disabled": "This Teskeið is not enabled for you.",
         "recipient_unavailable": "This email cannot receive an invitation yet. “Expenses and repayments” must first be enabled for the email in admin.",
         "delivery_failed": "The invitation was saved but delivery failed. Try sending it again.",

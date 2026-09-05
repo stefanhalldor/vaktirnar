@@ -35,6 +35,9 @@ export type ExpenseActionErrorCode =
   | 'save_outcome_unknown'
   | 'load_failed'
   | 'revision_open'
+  | 'delete_open_revision'
+  | 'delete_settlement_history'
+  | 'delete_outcome_unknown'
   | 'legacy_edit_draft_unbound'
 
 export type ExpenseActionResult<T = undefined> =
@@ -559,9 +562,16 @@ export type ExpenseItemLookupResult =
       group: ExpenseGroupView
       expense: ExpenseItemView
       editRevisionState: ExpenseEditRevisionStateView
+      deleteCapability: ExpenseDeleteCapabilityView
     }
   | { status: 'not_found' }
   | { status: 'forbidden' }
+
+export type ExpenseDeleteCapabilityView =
+  | { status: 'available'; expectedFinancialVersion: number }
+  | { status: 'blocked'; reason: 'not_active' | 'open_revision' | 'settlement_history' | 'unsafe_context' }
+  | { status: 'hidden' }
+  | { status: 'unavailable' }
 
 export interface ExpenseGroupSummaryView {
   id: string

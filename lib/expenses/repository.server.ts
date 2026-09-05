@@ -45,6 +45,7 @@ import type {
   ExpenseActivityView,
   ExpenseBalanceView,
   ExpenseDashboardView,
+  ExpenseDeleteCapabilityView,
   ExpenseGroupView,
   ExpenseGroupSummaryView,
   ExpenseIdentityProofKind,
@@ -251,6 +252,37 @@ function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null
+}
+
+function parseExpenseDeleteCapabilityResponse(value: unknown): ExpenseDeleteCapabilityView {
+  const source = record(value)
+  if (!source || typeof source.visible !== 'boolean') return { status: 'unavailable' }
+  const keys = Object.keys(source).sort().join(',')
+  if (!source.visible) {
+    return keys === 'visible' ? { status: 'hidden' } : { status: 'unavailable' }
+  }
+  if (keys !== 'allowed,expected_financial_version,reason,visible'
+    || typeof source.allowed !== 'boolean'
+    || typeof source.expected_financial_version !== 'number'
+    || !Number.isSafeInteger(source.expected_financial_version)
+    || source.expected_financial_version < 0
+    || source.expected_financial_version >= Number.MAX_SAFE_INTEGER) {
+    return { status: 'unavailable' }
+  }
+  if (source.allowed === true && source.reason === null) {
+    return {
+      status: 'available',
+      expectedFinancialVersion: source.expected_financial_version,
+    }
+  }
+  if (source.allowed === false
+    && (source.reason === 'not_active'
+      || source.reason === 'open_revision'
+      || source.reason === 'settlement_history'
+      || source.reason === 'unsafe_context')) {
+    return { status: 'blocked', reason: source.reason }
+  }
+  return { status: 'unavailable' }
 }
 
 function boundedString(value: unknown, maximum: number): string | null {
@@ -1977,6 +2009,25 @@ export async function getExpenseEditRevisionState(
   }
 }
 
+export async function getExpenseDeleteCapability(
+  actorUserId: string,
+  expenseId: string,
+): Promise<ExpenseDeleteCapabilityView> {
+  if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(expenseId)) {
+    return { status: 'unavailable' }
+  }
+  try {
+    const { data, error } = await getAdmin().rpc('expense_get_own_delete_capability', {
+      p_actor_id: actorUserId,
+      p_expense_id: expenseId,
+    })
+    if (error) return { status: 'unavailable' }
+    return parseExpenseDeleteCapabilityResponse(data)
+  } catch {
+    return { status: 'unavailable' }
+  }
+}
+
 export async function getExpenseItemLookup(
   actorUserId: string,
   expenseId: string,
@@ -2001,6 +2052,7 @@ export async function getExpenseItemLookup(
   const expense = group.expenses.find((item) => item.id === expenseId)
   if (!expense) return { status: 'forbidden' }
   const editRevisionState = await getExpenseEditRevisionState(actorUserId, expenseId)
+  const deleteCapability = await getExpenseDeleteCapability(actorUserId, expenseId)
   const { data: revisionRows, error: revisionError } = await getAdmin()
     .from('expense_revisions')
     .select('id, activity_id, financial_version_before, financial_version_after, changed_fields, before_snapshot, after_snapshot, created_at')
@@ -2037,6 +2089,7 @@ export async function getExpenseItemLookup(
     group: { ...group, editRevisionState: editRevisionState.status },
     expense: { ...expense, revisions },
     editRevisionState,
+    deleteCapability,
   }
 }
 
