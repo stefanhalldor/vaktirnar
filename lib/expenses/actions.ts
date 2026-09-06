@@ -26,6 +26,7 @@ import {
   AttachExpenseToEventSchema,
   BindExpenseMemberEventIdentitySchema,
   CancelExpenseSchema,
+  DeleteOwnExpenseCreationDraftSchema,
   DeleteOwnUnsettledExpenseSchema,
   CancelExpenseMemberInvitationSchema,
   CreateExpenseGroupSchema,
@@ -118,17 +119,36 @@ function revalidateExpensePaths(
   repaymentId?: string,
   eventId?: string,
 ) {
-  revalidatePath(EXPENSES_PATH)
-  revalidatePath('/auth-mvp/heim')
-  revalidatePath(`${EXPENSES_PATH}/gera-upp`)
-  if (groupId) revalidatePath(`${EXPENSES_PATH}/hopar/${groupId}`)
-  if (expenseId) revalidatePath(`${EXPENSES_PATH}/utgjold/${expenseId}`)
-  if (repaymentId) revalidatePath(`${EXPENSES_PATH}/endurgreidslur/${repaymentId}`)
-  if (eventId) revalidatePath(`/auth-mvp/vidburdir/${eventId}`)
+  try {
+    revalidatePath(EXPENSES_PATH)
+    revalidatePath('/auth-mvp/heim')
+    revalidatePath(`${EXPENSES_PATH}/gera-upp`)
+    if (groupId) revalidatePath(`${EXPENSES_PATH}/hopar/${groupId}`)
+    if (expenseId) revalidatePath(`${EXPENSES_PATH}/utgjold/${expenseId}`)
+    if (repaymentId) revalidatePath(`${EXPENSES_PATH}/endurgreidslur/${repaymentId}`)
+    if (eventId) revalidatePath(`/auth-mvp/vidburdir/${eventId}`)
+  } catch (error) {
+    // Database mutations have already completed when this helper runs. A
+    // cache-invalidation failure must never be presented as a failed write or
+    // invite a duplicate retry.
+    console.error(
+      '[expenses] post-mutation cache revalidation failed',
+      safeExpenseFailureDiagnostic(error),
+    )
+  }
 }
 
 function revalidateExpenseEventRouteFamily() {
-  revalidatePath(EXPENSE_EVENT_DETAIL_PATTERN, 'page')
+  try {
+    revalidatePath(EXPENSE_EVENT_DETAIL_PATTERN, 'page')
+  } catch (error) {
+    // The database write has already committed. Cache invalidation must never
+    // turn a successful destructive mutation into a retryable failure.
+    console.error(
+      '[expenses] post-mutation event cache revalidation failed',
+      safeExpenseFailureDiagnostic(error),
+    )
+  }
 }
 
 function actionError(error: unknown): ExpenseActionResult<never> {
@@ -235,6 +255,39 @@ function parseExpenseDeleteResult(
   }
 }
 
+function parseExpenseCreationDraftDeleteResult(
+  data: unknown,
+  expectedDraftId: string,
+): {
+  draftId: string
+  subject: 'private_draft' | 'shared_draft'
+  groupId: string | null
+  eventId: string | null
+} | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+  const result = data as Record<string, unknown>
+  const groupId = result.group_id
+  const eventId = result.event_id
+  if (Object.keys(result).sort().join(',')
+      !== 'contract_version,deleted,draft_id,event_id,group_id,state,subject'
+    || result.contract_version !== 1
+    || result.state !== 'deleted'
+    || result.deleted !== true
+    || result.draft_id !== expectedDraftId
+    || (result.subject !== 'private_draft' && result.subject !== 'shared_draft')
+    || (groupId !== null && (typeof groupId !== 'string' || !EXPENSE_UUID_PATTERN.test(groupId)))
+    || (eventId !== null && (typeof eventId !== 'string' || !EXPENSE_UUID_PATTERN.test(eventId)))
+    || (groupId !== null && eventId !== null)) {
+    return null
+  }
+  return {
+    draftId: expectedDraftId,
+    subject: result.subject,
+    groupId: groupId as string | null,
+    eventId: eventId as string | null,
+  }
+}
+
 const DEFINITIVE_DELETE_FAILURE_REASONS = new Set([
   'expense_unavailable',
   'expense_invalid_input',
@@ -258,6 +311,20 @@ function isDefinitiveDeleteFailure(error: unknown): boolean {
     && (error.sqlState !== 'unknown' || DEFINITIVE_DELETE_FAILURE_REASONS.has(error.reason))
 }
 
+const DEFINITIVE_CREATION_DRAFT_DELETE_FAILURE_REASONS = new Set([
+  'expense_creation_draft_delete_invalid_input',
+  'expense_creation_draft_delete_not_allowed',
+  'expense_creation_draft_delete_conflict',
+  'expense_creation_draft_delete_receipt_conflict',
+  'expense_unavailable',
+  'expense_idempotency_conflict',
+])
+
+function isDefinitiveCreationDraftDeleteFailure(error: unknown): boolean {
+  return error instanceof ExpenseRpcError
+    && DEFINITIVE_CREATION_DRAFT_DELETE_FAILURE_REASONS.has(error.reason)
+}
+
 function deleteOutcomeUnknown(expenseId: string): ExpenseActionResult {
   try {
     revalidateExpensePaths(undefined, expenseId)
@@ -265,6 +332,22 @@ function deleteOutcomeUnknown(expenseId: string): ExpenseActionResult {
   } catch {
     console.error('[expenses] delete outcome cache revalidation failed')
   }
+  return { ok: false, error: 'delete_outcome_unknown' }
+}
+
+function creationDraftDeleteOutcomeUnknown(
+  draftId: string,
+): { ok: false; error: 'delete_outcome_unknown' } {
+  try {
+    revalidateExpensePaths()
+    revalidatePath(`${EXPENSES_PATH}/hopar/[groupId]`, 'page')
+    revalidateExpenseEventRouteFamily()
+  } catch {
+    console.error('[expenses] creation draft delete outcome cache revalidation failed')
+  }
+  // Deliberately retain only an opaque id in the caller's request-id cache.
+  // A transport failure is never permission to issue a fresh destructive request.
+  void draftId
   return { ok: false, error: 'delete_outcome_unknown' }
 }
 
@@ -602,6 +685,9 @@ function unconfirmedExpenseActionError(error: unknown): ExpenseActionResult<neve
   if (message.includes('expense_unconfirmed_not_found')) {
     return { ok: false, error: 'not_found' }
   }
+  if (message.includes('expense_unconfirmed_result_invalid')) {
+    return { ok: false, error: 'save_outcome_unknown' }
+  }
   if (
     message.includes('expense_unconfirmed_draft_conflict')
     || message.includes('expense_unconfirmed_publication_conflict')
@@ -616,8 +702,25 @@ function unconfirmedExpenseActionError(error: unknown): ExpenseActionResult<neve
     message.includes('expense_unconfirmed_confirmation_required')
     || message.includes('expense_unconfirmed_split_not_ready')
     || message.includes('expense_unconfirmed_invalid_input')
+    || message.includes('expense_unconfirmed_invalid_draft')
   ) {
     return { ok: false, error: 'invalid_input' }
+  }
+  if (
+    message.includes('expense_unconfirmed_event_unavailable')
+    || message.includes('teskeid_event_not_found')
+    || message.includes('teskeid_event_unavailable')
+  ) {
+    return { ok: false, error: 'event_roster_changed' }
+  }
+  if (message.includes('expense_unconfirmed_source_changed')) {
+    return { ok: false, error: 'participant_source_changed' }
+  }
+  if (message.includes('expense_unconfirmed_duplicate_identity')) {
+    return { ok: false, error: 'duplicate_participant' }
+  }
+  if (message.includes('expense_unconfirmed_author_required')) {
+    return { ok: false, error: 'author_required' }
   }
   if (message.includes('not_allowed')) return { ok: false, error: 'not_allowed' }
   if (message.includes('unavailable')) return { ok: false, error: 'feature_disabled' }
@@ -759,7 +862,17 @@ export async function finalizeExpenseDraft(
     if (!result || result.draftId !== value.draft_id) {
       throw new Error('expense_unconfirmed_result_invalid')
     }
-    await deliverExpenseInvitationIds(user.id, result.invitationIds)
+    try {
+      await deliverExpenseInvitationIds(user.id, result.invitationIds)
+    } catch (deliveryError) {
+      // The finalizer result already proves the Expense commit. Invitation
+      // delivery is follow-up work and cannot turn that committed save into a
+      // retryable failure.
+      console.error(
+        '[expenses] finalized expense invitation delivery failed',
+        safeExpenseFailureDiagnostic(deliveryError),
+      )
+    }
     revalidateExpensePaths(
       result.groupId,
       result.expenseId,
@@ -2400,6 +2513,48 @@ export async function deleteOwnUnsettledExpense(input: unknown): Promise<Expense
     console.error('[expenses] delete own unsettled expense failed')
     if (parsedExpenseId && !isDefinitiveDeleteFailure(error)) {
       return deleteOutcomeUnknown(parsedExpenseId)
+    }
+    return actionError(error)
+  }
+}
+
+export async function deleteOwnExpenseCreationDraft(
+  input: unknown,
+): Promise<ExpenseActionResult<{
+  draftId: string
+  subject: 'private_draft' | 'shared_draft'
+  groupId: string | null
+  eventId: string | null
+}>> {
+  const { user } = await guardExpenseAccess()
+  let parsedDraftId: string | null = null
+  try {
+    const parsed = DeleteOwnExpenseCreationDraftSchema.safeParse(input)
+    if (!parsed.success) return { ok: false, error: 'invalid_input' }
+    parsedDraftId = parsed.data.draft_id
+    const { data, error } = await getAdmin().rpc('expense_delete_own_creation_draft_v1', {
+      p_actor_id: user.id,
+      p_request_id: parsed.data.request_id,
+      p_draft_id: parsed.data.draft_id,
+      p_expected_draft_version: parsed.data.expected_draft_version,
+      p_expected_publication_version: parsed.data.expected_publication_version,
+    })
+    if (error) rpcError(error)
+    const result = parseExpenseCreationDraftDeleteResult(data, parsed.data.draft_id)
+    if (!result) {
+      console.error('[expenses] delete own creation draft outcome unavailable')
+      return creationDraftDeleteOutcomeUnknown(parsed.data.draft_id)
+    }
+    revalidateExpensePaths(result.groupId ?? undefined, undefined, undefined, result.eventId ?? undefined)
+    revalidateExpenseEventRouteFamily()
+    return { ok: true, data: result }
+  } catch (error) {
+    console.error(
+      '[expenses] delete own creation draft failed',
+      safeExpenseFailureDiagnostic(error),
+    )
+    if (parsedDraftId && !isDefinitiveCreationDraftDeleteFailure(error)) {
+      return creationDraftDeleteOutcomeUnknown(parsedDraftId)
     }
     return actionError(error)
   }

@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   finalizeDraft: vi.fn(),
   reconfirmRevision: vi.fn(),
   discardRevision: vi.fn(),
+  deleteCreationDraft: vi.fn(),
+  deleteConfirmedExpense: vi.fn(),
   refreshPublicationLifecycle: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),
@@ -110,6 +112,25 @@ const translations: Record<string, string> = {
   'expenseForm.saveNow': 'Vista',
   'expenseForm.draftSaving': 'Vista breytingar...', 'expenseForm.draftSaved': 'Breytingar vistaðar',
   'expenseForm.draftSaveFailed': 'Vistun mistókst',
+  'deleteControl.trigger': 'Eyða kostnaði',
+  'deleteControl.confirm': 'Eyða kostnaði',
+  'deleteControl.deleting': 'Eyði kostnaði...',
+  'deleteControl.keep': 'Halda kostnaði',
+  'deleteControl.close': 'Loka',
+  'deleteControl.closeLabel': 'Loka staðfestingu',
+  'deleteControl.checkStatus': 'Athuga stöðu',
+  'deleteControl.checkingStatus': 'Athuga stöðu...',
+  'deleteControl.unavailable': 'Ekki tókst að staðfesta hvort hægt sé að eyða kostnaðinum.',
+  'deleteControl.subjects.privateDraft.title': 'Eyða drögunum?',
+  'deleteControl.subjects.privateDraft.description': 'Drögunum verður eytt varanlega.',
+  'deleteControl.subjects.sharedDraft.title': 'Eyða deildum drögum?',
+  'deleteControl.subjects.sharedDraft.description': 'Drögunum og deilingunni verður eytt varanlega.',
+  'deleteControl.subjects.confirmedExpense.title': 'Eyða staðfestum kostnaði?',
+  'deleteControl.subjects.confirmedExpense.description': 'Staðfesta kostnaðinum verður eytt varanlega.',
+  'deleteControl.blocked.open_revision': 'Hættu fyrst við opnu breytingarnar áður en þú eyðir kostnaðinum.',
+  'errors.mutationErrorTitle': 'Aðgerðin tókst ekki',
+  'errors.mutationErrorDismiss': 'Allt í lagi',
+  'errors.mutationErrorCloseLabel': 'Loka villuskilaboðum',
   'splitMethods.fixed': 'Föst upphæð', 'splitMethods.percentage': 'Prósenta', 'splitMethods.weighted': 'Hlutir',
   'splitMethods.fixedLabel': 'Föst upphæð', 'splitMethods.percentageLabel': 'Prósenta',
   'splitMethods.weightLabel': 'Hlutir', 'splitMethods.simpleHint': 'Veldu leið.',
@@ -125,7 +146,11 @@ const translations: Record<string, string> = {
   'errors.sharedDraftChangesPending': 'Deildu breytingunum fyrst.',
   'errors.conflict': 'Gögnin hafa breyst.',
   'errors.event_roster_changed': 'Gestalistinn hefur breyst. Hreinsaðu viðburðarvalið og veldu aftur.',
+  'errors.participant_source_changed': 'Einn valinn aðili er ekki lengur tiltækur.',
+  'errors.duplicate_participant': 'Sami aðili virðist vera valinn oftar en einu sinni.',
+  'errors.author_required': 'Þú þarft að vera greiðandi eða þátttakandi.',
   'errors.save_failed': 'Ekki tókst að vista.',
+  'errors.save_outcome_unknown': 'Ekki tókst að staðfesta niðurstöðu aðgerðarinnar.',
   'editErrors.invalid_input': 'Skiptingin gengur ekki upp. Farðu yfir upphæðir og þátttakendur og reyndu aftur.',
   'editErrors.referenced_participant': 'Ekki er hægt að fjarlægja einn þátttakanda vegna tengdrar sögu eða boðs. Haltu þátttakandanum inni í skiptingunni og reyndu aftur.',
   'editErrors.not_allowed': 'Þú hefur ekki lengur heimild til að vista þessa breytingu. Farðu til baka og endurhlaðaðu kostnaðinn.',
@@ -154,6 +179,8 @@ vi.mock('@/lib/expenses/actions', () => ({
   refreshExpenseDraftPublicationLifecycle: mocks.refreshPublicationLifecycle,
   reconfirmExpenseEditRevision: mocks.reconfirmRevision,
   discardExpenseEditRevision: mocks.discardRevision,
+  deleteOwnExpenseCreationDraft: mocks.deleteCreationDraft,
+  deleteOwnUnsettledExpense: mocks.deleteConfirmedExpense,
 }))
 
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
@@ -213,6 +240,15 @@ beforeEach(() => {
     data: { groupId: 'group-1', expenseId: 'expense-1', financialVersion: 2, unchanged: false },
   })
   mocks.discardRevision.mockResolvedValue({ ok: true, data: { expenseId: 'expense-1' } })
+  mocks.deleteCreationDraft.mockResolvedValue({
+    ok: true,
+    data: {
+      draftId: '81000000-0000-4000-8000-000000000001',
+      subject: 'private_draft',
+      groupId: null,
+      eventId: null,
+    },
+  })
 })
 
 function renderForm(extra: Partial<React.ComponentProps<typeof ExpenseForm>> = {}) {
@@ -337,6 +373,32 @@ async function next(name: string) {
 }
 
 describe('ExpenseForm simplified split and autosave', () => {
+  it('refreshes server-owned capability props after the first draft becomes durable', async () => {
+    renderForm()
+    fillDetails()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
+
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledTimes(1))
+    expect(mocks.replace).toHaveBeenCalledWith(expect.stringContaining('?draft='))
+    expect(mocks.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes capability props after a first share that outruns the initial route refresh', async () => {
+    renderForm()
+    fillDetails()
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deila drögum' }))
+
+    await waitFor(() => expect(mocks.shareDraft).toHaveBeenCalledTimes(1))
+    expect(mocks.replace).toHaveBeenLastCalledWith(
+      '/draft?draft=11111111-1111-4111-8111-111111111111',
+    )
+    expect(mocks.refresh).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps event guests unchecked until an explicit share selection and never changes the payer', () => {
     renderForm({
       eventContext: true,
@@ -358,6 +420,53 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(screen.getByRole('checkbox', { name: 'Bjarni' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Ég/ })).toBeChecked()
     expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('member-self')
+  })
+
+  it('keeps the author included when another participant becomes the payer', () => {
+    renderForm({ initialStep: 'split' })
+    const author = screen.getByRole('checkbox', { name: /Ég/ })
+    fireEvent.click(author)
+    expect(author).not.toBeChecked()
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Greiðandi 1' }), {
+      target: { value: 'member-anna' },
+    })
+
+    expect(author).toBeChecked()
+    expect(author).toBeDisabled()
+    expect(screen.getByRole('combobox', { name: 'Greiðandi 1' })).toHaveValue('member-anna')
+  })
+
+  it('does not force a manager editor into an existing expense allocation', async () => {
+    const draft = savedEditDraft()
+    draft.payload.included['member-self'] = false
+    draft.payload.payerKeys = ['member-anna']
+    draft.payload.payments = { 'member-self': '', 'member-anna': '10000' }
+    renderForm({
+      initialStep: 'split',
+      draft,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: draft.id,
+        draftVersion: draft.version,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+      edit: { expense: editableExpense(), expectedFinancialVersion: 1 },
+    })
+
+    const editor = screen.getByRole('checkbox', { name: /Ég/ })
+    expect(editor).not.toBeChecked()
+    expect(editor).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Deila drögum' }))
+
+    await waitFor(() => expect(mocks.shareDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: draft.id,
+      expected_draft_version: draft.version,
+      expected_publication_version: null,
+    })))
+    expect(mocks.saveDraft).not.toHaveBeenCalled()
   })
 
   it('adds an event guest as a payer without changing shares or exposing its label in the draft payload', async () => {
@@ -514,7 +623,7 @@ describe('ExpenseForm simplified split and autosave', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Gestalistinn hefur breyst')
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Gestalistinn hefur breyst')
     expect(mocks.finalizeDraft).toHaveBeenCalledWith(expect.objectContaining({
       draft_id: '73000000-0000-4000-8000-000000000003',
       expected_draft_version: 1,
@@ -522,6 +631,7 @@ describe('ExpenseForm simplified split and autosave', () => {
       split_confirmed: true,
     }))
 
+    fireEvent.click(screen.getByRole('button', { name: 'Allt í lagi' }))
     fireEvent.click(screen.getByRole('button', { name: 'Til baka' }))
     expect(await screen.findByRole('textbox', { name: 'Heiti útgjalds' })).toHaveValue('Kvöldmatur')
     expect(screen.getByRole('textbox', { name: /Lýsing/ })).toHaveValue('Má ekki tapast')
@@ -820,7 +930,8 @@ describe('ExpenseForm simplified split and autosave', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Staðfesta kostnað' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að vista.')
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Ekki tókst að vista.')
+    fireEvent.click(screen.getByRole('button', { name: 'Allt í lagi' }))
     expect(screen.getByRole('radio', { name: /Allir sem sjá viðburðinn/ })).toBeChecked()
   })
 
@@ -888,8 +999,14 @@ describe('ExpenseForm simplified split and autosave', () => {
     mocks.saveDraft.mockResolvedValueOnce({ ok: false, error: 'save_failed' })
     renderForm()
     fillDetails()
-    fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Vistun mistókst')
+    const continueButton = screen.getByRole('button', { name: 'Áfram í skiptingu' })
+    continueButton.focus()
+    fireEvent.click(continueButton)
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('Vistun mistókst')
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Allt í lagi' })).toHaveFocus())
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Allt í lagi' }))
+    await waitFor(() => expect(continueButton).toHaveFocus())
     expect(screen.getByRole('textbox', { name: 'Heiti útgjalds' })).toBeInTheDocument()
   })
 
@@ -898,9 +1015,180 @@ describe('ExpenseForm simplified split and autosave', () => {
     renderForm()
     fillDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Vistun mistókst')
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Vistun mistókst')
+    fireEvent.click(screen.getByRole('button', { name: 'Allt í lagi' }))
     expect(screen.getByRole('textbox', { name: 'Heiti útgjalds' })).toBeInTheDocument()
     expect(mocks.push).not.toHaveBeenCalled()
+  })
+
+  it('rewrites orphan participant keys before sharing an otherwise unchanged resumed draft', async () => {
+    const activeGuestId = '72000000-0000-4000-8000-000000000002'
+    const activeGuestKey = `event:${activeGuestId}`
+    const staleKey = 'event:72000000-0000-4000-8000-000000000099'
+    const baseDraft = savedEventDraft(
+      '72000000-0000-4000-8000-000000000001',
+      'participants_only',
+    )
+    const draft: NonNullable<React.ComponentProps<typeof ExpenseForm>['draft']> = {
+      ...baseDraft,
+      currentStep: 'split',
+      payload: {
+        ...baseDraft.payload,
+        members: [...baseDraft.payload.members, {
+          key: activeGuestKey,
+          label: 'Event participant',
+          input: { type: 'event_guest', key: activeGuestKey, event_guest_id: activeGuestId },
+          isSelf: false,
+        }],
+        included: { ...baseDraft.payload.included, [activeGuestKey]: true, [staleKey]: true },
+        payments: { ...baseDraft.payload.payments, [activeGuestKey]: '', [staleKey]: '' },
+        payerKeys: [...baseDraft.payload.payerKeys, staleKey],
+        amounts: { self: '5000', [activeGuestKey]: '5000', [staleKey]: '0' },
+        percentages: { self: '50', [activeGuestKey]: '50', [staleKey]: '0' },
+        weights: { ...baseDraft.payload.weights, [activeGuestKey]: '1', [staleKey]: '1' },
+      },
+    }
+    mocks.saveDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: draft.id,
+        version: 3,
+        savedAt: '2026-09-05T13:00:00.000Z',
+        relationStatus: 'unchanged',
+        eventId: draft.payload.eventId,
+        eventRosterRevision: draft.payload.eventRosterRevision,
+        privacyFailClosed: false,
+      },
+    })
+    mocks.refreshPublicationLifecycle.mockResolvedValueOnce({
+      status: 'ready',
+      draftId: draft.id,
+      draftVersion: 3,
+      sharingState: 'never_shared',
+      expectedPublicationVersion: null,
+      hasUnsharedChanges: false,
+    })
+    mocks.shareDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: draft.id,
+        draftVersion: 3,
+        publicationVersion: 1,
+        allocationState: 'balanced_unconfirmed',
+      },
+    })
+
+    renderForm({
+      mode: 'one_off',
+      groupId: undefined,
+      draft,
+      initialMembers: draft.payload.members,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: draft.id,
+        draftVersion: draft.version,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+      eventSources: [{
+        id: draft.payload.eventId!,
+        name: 'Helgarferð',
+        rosterRevision: draft.payload.eventRosterRevision!,
+        viewerRole: 'owner',
+        guests: [{
+          id: activeGuestId,
+          displayName: 'Anna',
+          sourceKind: 'manual_name',
+          participantKind: 'guest',
+        }],
+      }],
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Deila drögum' }))
+
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledTimes(1))
+    const payload = mocks.saveDraft.mock.calls[0]![0].payload
+    expect(payload.payerKeys).toEqual(['self'])
+    for (const values of [
+      payload.included,
+      payload.payments,
+      payload.amounts,
+      payload.percentages,
+      payload.weights,
+    ]) {
+      expect(Object.keys(values)).toEqual(['self', activeGuestKey])
+    }
+    expect(JSON.stringify(payload)).not.toContain(staleKey)
+    await waitFor(() => expect(mocks.shareDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: draft.id,
+      expected_draft_version: 3,
+      expected_publication_version: null,
+    })))
+  })
+
+  it('repairs a resumed draft where the author is neither payer nor participant before sharing', async () => {
+    const draft = savedGroupDraft()
+    draft.payload.included['member-self'] = false
+    draft.payload.payerKeys = ['member-anna']
+    draft.payload.payments = { 'member-self': '', 'member-anna': '10000' }
+    mocks.saveDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: draft.id,
+        version: 3,
+        savedAt: '2026-09-05T13:10:00.000Z',
+        relationStatus: 'unchanged',
+        eventId: null,
+        eventRosterRevision: null,
+        privacyFailClosed: false,
+      },
+    })
+    mocks.refreshPublicationLifecycle.mockResolvedValueOnce({
+      status: 'ready',
+      draftId: draft.id,
+      draftVersion: 3,
+      sharingState: 'never_shared',
+      expectedPublicationVersion: null,
+      hasUnsharedChanges: false,
+    })
+    mocks.shareDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: draft.id,
+        draftVersion: 3,
+        publicationVersion: 1,
+        allocationState: 'balanced_unconfirmed',
+      },
+    })
+
+    renderForm({
+      draft,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: draft.id,
+        draftVersion: draft.version,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+    })
+
+    const author = screen.getByRole('checkbox', { name: /Ég/ })
+    expect(author).toBeChecked()
+    expect(author).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Deila drögum' }))
+
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        included: expect.objectContaining({ 'member-self': true }),
+        payerKeys: ['member-anna'],
+      }),
+    })))
+    await waitFor(() => expect(mocks.shareDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: draft.id,
+      expected_draft_version: 3,
+      expected_publication_version: null,
+    })))
   })
 
   it('uses equal-height payer controls and can add a payer through the shared picker', async () => {
@@ -1283,6 +1571,248 @@ describe('ExpenseForm simplified split and autosave', () => {
     confirm.mockRestore()
   })
 
+  it('offers the same creator-facing delete action for a persisted private draft on details', () => {
+    renderForm({
+      draft: { ...savedGroupDraft(), currentStep: 'details' },
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+      creationDraftDeleteCapability: {
+        status: 'ready',
+        subject: 'private_draft',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        contextType: 'group',
+        groupId: 'group-1',
+        expectedDraftVersion: 2,
+        expectedPublicationVersion: null,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
+    expect(screen.getByRole('alertdialog', { name: 'Eyða drögunum?' }))
+      .toHaveTextContent('Drögunum verður eytt varanlega.')
+    expect(screen.getByRole('button', { name: 'Halda kostnaði' })).toHaveFocus()
+  })
+
+  it('fails delete closed when preserved client state and refreshed server capability name different drafts', () => {
+    const draftA = savedGroupDraft()
+    const capabilityA = {
+      status: 'ready' as const,
+      subject: 'private_draft' as const,
+      draftId: draftA.id,
+      contextType: 'group' as const,
+      groupId: 'group-1',
+      expectedDraftVersion: 2,
+      expectedPublicationVersion: null,
+    }
+    const view = renderForm({
+      draft: draftA,
+      creationDraftDeleteCapability: capabilityA,
+    })
+    expect(screen.getByRole('button', { name: 'Eyða kostnaði' })).toBeEnabled()
+
+    const draftB = {
+      ...draftA,
+      id: '81000000-0000-4000-8000-000000000002',
+    }
+    view.rerender(
+      <ExpenseForm
+        mode="group"
+        groupId="group-1"
+        defaultCurrency="ISK"
+        initialMembers={members}
+        initialDate="2026-08-05"
+        draftBaseHref="/draft"
+        draft={draftB}
+        creationDraftDeleteCapability={{
+          ...capabilityA,
+          draftId: draftB.id,
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Eyða kostnaði' })).toBeDisabled()
+    expect(screen.getByText('Ekki tókst að staðfesta hvort hægt sé að eyða kostnaðinum.'))
+      .toBeInTheDocument()
+    expect(mocks.deleteCreationDraft).not.toHaveBeenCalled()
+  })
+
+  it('keeps shared-draft deletion distinct from the non-destructive unshare action', async () => {
+    mocks.deleteCreationDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: '81000000-0000-4000-8000-000000000001',
+        subject: 'shared_draft',
+        groupId: 'group-1',
+        eventId: null,
+      },
+    })
+    renderForm({
+      draft: savedGroupDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: false,
+      },
+      creationDraftDeleteCapability: {
+        status: 'ready',
+        subject: 'shared_draft',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        contextType: 'group',
+        groupId: 'group-1',
+        expectedDraftVersion: 2,
+        expectedPublicationVersion: 7,
+      },
+    })
+
+    expect(screen.getByRole('button', { name: 'Hætta að deila' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
+    const dialog = screen.getByRole('alertdialog', { name: 'Eyða deildum drögum?' })
+    expect(dialog).toHaveTextContent('Drögunum og deilingunni verður eytt varanlega.')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Eyða kostnaði' }))
+
+    await waitFor(() => expect(mocks.deleteCreationDraft).toHaveBeenCalledWith({
+      draft_id: '81000000-0000-4000-8000-000000000001',
+      expected_draft_version: 2,
+      expected_publication_version: 7,
+      request_id: expect.any(String),
+    }))
+    expect(mocks.unshareDraft).not.toHaveBeenCalled()
+  })
+
+  it('advances delete CAS to the version returned by a normal draft save', async () => {
+    const draft = { ...savedGroupDraft(), currentStep: 'details' as const }
+    mocks.saveDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: draft.id,
+        version: 3,
+        savedAt: '2026-09-06T03:00:00.000Z',
+        relationStatus: 'unchanged',
+        eventId: null,
+        eventRosterRevision: null,
+        privacyFailClosed: false,
+      },
+    })
+    renderForm({
+      draft,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: draft.id,
+        draftVersion: 2,
+        sharingState: 'never_shared',
+        expectedPublicationVersion: null,
+        hasUnsharedChanges: false,
+      },
+      creationDraftDeleteCapability: {
+        status: 'ready',
+        subject: 'private_draft',
+        draftId: draft.id,
+        contextType: 'group',
+        groupId: 'group-1',
+        expectedDraftVersion: 2,
+        expectedPublicationVersion: null,
+      },
+    })
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Heiti útgjalds' }), {
+      target: { value: 'Nýr titill' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Áfram í skiptingu' }))
+    await waitFor(() => expect(mocks.saveDraft).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Eyða kostnaði' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', {
+      name: 'Eyða kostnaði',
+    }))
+
+    await waitFor(() => expect(mocks.deleteCreationDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: draft.id,
+      expected_draft_version: 3,
+      expected_publication_version: null,
+    })))
+  })
+
+  it('switches the delete contract to private with the returned withdrawal version', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const draft = savedGroupDraft()
+    mocks.unshareDraft.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        draftId: draft.id,
+        draftVersion: 2,
+        publicationVersion: 8,
+      },
+    })
+    renderForm({
+      draft,
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: draft.id,
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: false,
+      },
+      creationDraftDeleteCapability: {
+        status: 'ready',
+        subject: 'shared_draft',
+        draftId: draft.id,
+        contextType: 'group',
+        groupId: 'group-1',
+        expectedDraftVersion: 2,
+        expectedPublicationVersion: 7,
+      },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hætta að deila' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Deila drögum' })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
+    const dialog = screen.getByRole('alertdialog', { name: 'Eyða drögunum?' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Eyða kostnaði' }))
+
+    await waitFor(() => expect(mocks.deleteCreationDraft).toHaveBeenCalledWith(expect.objectContaining({
+      draft_id: draft.id,
+      expected_draft_version: 2,
+      expected_publication_version: 8,
+    })))
+    confirm.mockRestore()
+  })
+
+  it('shows creator deletion as blocked during an edit while keeping discard and unshare distinct', () => {
+    renderForm({
+      initialStep: 'split',
+      draft: savedEditDraft(),
+      publicationLifecycle: {
+        status: 'ready',
+        draftId: '81000000-0000-4000-8000-000000000001',
+        draftVersion: 2,
+        sharingState: 'shared',
+        expectedPublicationVersion: 7,
+        hasUnsharedChanges: false,
+      },
+      edit: { expense: editableExpense(), expectedFinancialVersion: 1 },
+      confirmedDeleteCapability: { status: 'blocked', reason: 'open_revision' },
+    })
+
+    expect(screen.getByRole('button', { name: 'Eyða kostnaði' })).toBeDisabled()
+    expect(screen.getByText('Hættu fyrst við opnu breytingarnar áður en þú eyðir kostnaðinum.'))
+      .toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hætta við breytingar' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hætta að deila' })).toBeInTheDocument()
+    expect(mocks.deleteConfirmedExpense).not.toHaveBeenCalled()
+    expect(mocks.discardRevision).not.toHaveBeenCalled()
+    expect(mocks.unshareDraft).not.toHaveBeenCalled()
+  })
+
   it('[V167] lets a private edit revision reconfirm its allocation without a publication step', () => {
     renderForm({
       initialStep: 'split',
@@ -1357,7 +1887,8 @@ describe('ExpenseForm simplified split and autosave', () => {
       expected_draft_version: 3,
       expected_publication_version: null,
     }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Ekki tókst að staðfesta niðurstöðu vistunar.')
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Ekki tókst að staðfesta niðurstöðu vistunar.')
+    fireEvent.click(screen.getByRole('button', { name: 'Allt í lagi' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
 
@@ -1451,12 +1982,16 @@ describe('ExpenseForm simplified split and autosave', () => {
       edit: { expense: editableExpense(), expectedFinancialVersion: 1 },
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Deila breytingum' }))
+    const shareButton = screen.getByRole('button', { name: 'Deila breytingum' })
+    shareButton.focus()
+    fireEvent.click(shareButton)
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Gögnin hafa breyst.')
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Gögnin hafa breyst.')
     expect(screen.queryByText(/sqlstate|expense_|publication|rpc|81000000-/i)).not.toBeInTheDocument()
     expect(mocks.update).not.toHaveBeenCalled()
     expect(mocks.unshareDraft).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Allt í lagi' }))
+    await waitFor(() => expect(shareButton).toHaveFocus())
     await waitFor(() => expect(screen.getByRole('button', { name: 'Deila breytingum' })).toBeEnabled())
   })
 
@@ -1566,7 +2101,7 @@ describe('ExpenseForm simplified split and autosave', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Þetta er rétt skipting/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Vista breytingar' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent(
       'Haltu þátttakandanum inni í skiptingunni og reyndu aftur.',
     )
     expect(screen.queryByText(/sqlstate|expense_share|collaborator|invitation|rpc/i)).not.toBeInTheDocument()

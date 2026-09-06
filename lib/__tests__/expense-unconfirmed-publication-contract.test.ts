@@ -9,6 +9,8 @@ import {
   parseExpenseDraftPublicationLifecycle,
   parseExpenseDraftEventRelationResult,
   parseExpenseFinalizeResult,
+  parseExpenseSharedDraftManagementTarget,
+  parseGroupCreationExpenseDrafts,
   parseGroupSharedExpenseDrafts,
   parseExpenseSharedDraftDetail,
   parseExpenseShareResult,
@@ -570,6 +572,156 @@ describe('SQL159 group shared-draft projection contract', () => {
   })
 })
 
+describe('SQL175 group creation-draft projection contract', () => {
+  const sharedBase = {
+    lifecycle_state: 'shared_draft' as const,
+    publication_version: 4,
+    title: 'Rúta',
+    total_minor: 24_000,
+    currency: 'ISK',
+    incurred_on: '2026-08-25',
+    allocation_state: 'balanced_unconfirmed',
+  }
+
+  function privateRow(overrides: Record<string, unknown> = {}) {
+    return {
+      lifecycle_state: 'private_draft',
+      draft_id: DRAFT_ID,
+      draft_version: 3,
+      title: null,
+      total_minor: null,
+      currency: null,
+      incurred_on: null,
+      allocation_state: 'incomplete',
+      viewer_role: 'author',
+      detail_target: { kind: 'private_draft', draft_id: DRAFT_ID },
+      ...overrides,
+    }
+  }
+
+  function authorSharedRow(overrides: Record<string, unknown> = {}) {
+    return {
+      ...sharedBase,
+      publication_id: PUBLICATION_ID,
+      viewer_role: 'author',
+      detail_target: { kind: 'private_draft', draft_id: SECOND_DRAFT_ID },
+      ...overrides,
+    }
+  }
+
+  function participantSharedRow(overrides: Record<string, unknown> = {}) {
+    return {
+      ...sharedBase,
+      publication_id: SECOND_PUBLICATION_ID,
+      viewer_role: 'participant',
+      detail_target: {
+        kind: 'shared_draft',
+        publication_id: SECOND_PUBLICATION_ID,
+      },
+      ...overrides,
+    }
+  }
+
+  it('maps nullable private, author-private and participant-shared rows to exact routes', () => {
+    expect(parseGroupCreationExpenseDrafts({
+      contract_version: 1,
+      status: 'ready',
+      rows: [privateRow(), authorSharedRow(), participantSharedRow()],
+    }, GROUP_ID)).toEqual({
+      status: 'ready',
+      items: [{
+        lifecycleState: 'private_draft',
+        title: null,
+        totalMinor: null,
+        currency: null,
+        incurredOn: null,
+        allocationState: 'incomplete',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/hopar/${GROUP_ID}/nytt-utgjald?draft=${DRAFT_ID}`,
+      }, {
+        lifecycleState: 'shared_draft',
+        title: 'Rúta',
+        totalMinor: 24_000,
+        currency: 'ISK',
+        incurredOn: '2026-08-25',
+        allocationState: 'balanced_unconfirmed',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/hopar/${GROUP_ID}/nytt-utgjald?draft=${SECOND_DRAFT_ID}`,
+      }, {
+        lifecycleState: 'shared_draft',
+        title: 'Rúta',
+        totalMinor: 24_000,
+        currency: 'ISK',
+        incurredOn: '2026-08-25',
+        allocationState: 'balanced_unconfirmed',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${SECOND_PUBLICATION_ID}`,
+      }],
+    })
+  })
+
+  it.each([
+    ['private target mismatch', [privateRow({
+      detail_target: { kind: 'private_draft', draft_id: SECOND_DRAFT_ID },
+    })]],
+    ['private row with shared target', [privateRow({
+      detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+    })]],
+    ['author row with participant target', [authorSharedRow({
+      detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+    })]],
+    ['participant row with private target', [participantSharedRow({
+      detail_target: { kind: 'private_draft', draft_id: DRAFT_ID },
+    })]],
+    ['participant target mismatch', [participantSharedRow({
+      detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+    })]],
+    ['extra private field', [privateRow({ payload: { title: 'private' } })]],
+    ['malformed nullable field', [privateRow({ total_minor: 0 })]],
+    ['duplicate private target', [privateRow(), privateRow()]],
+    ['duplicate shared target', [participantSharedRow(), participantSharedRow()]],
+    ['duplicate shared publication across viewer targets', [
+      authorSharedRow(),
+      participantSharedRow({
+        publication_id: PUBLICATION_ID,
+        detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+      }),
+    ]],
+  ])('fails the complete SQL175 group payload closed for %s', (_label, rows) => {
+    expect(parseGroupCreationExpenseDrafts({
+      contract_version: 1,
+      status: 'ready',
+      rows,
+    }, GROUP_ID)).toEqual({ status: 'unavailable', items: [] })
+  })
+
+  it('requires exact status shapes and the 100-row bound', () => {
+    expect(parseGroupCreationExpenseDrafts({
+      contract_version: 1, status: 'none', rows: [],
+    }, GROUP_ID)).toEqual({ status: 'ready', items: [] })
+    expect(parseGroupCreationExpenseDrafts({
+      contract_version: 1, status: 'unavailable', rows: [],
+    }, GROUP_ID)).toEqual({ status: 'unavailable', items: [] })
+    expect(parseGroupCreationExpenseDrafts({
+      contract_version: 1, status: 'ready', rows: [],
+    }, GROUP_ID)).toEqual({ status: 'unavailable', items: [] })
+    expect(parseGroupCreationExpenseDrafts({
+      contract_version: 1, status: 'none', rows: [privateRow()],
+    }, GROUP_ID)).toEqual({ status: 'unavailable', items: [] })
+    expect(parseGroupCreationExpenseDrafts({
+      contract_version: 1,
+      status: 'ready',
+      rows: Array.from({ length: 101 }, (_, index) => privateRow({
+        draft_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        detail_target: {
+          kind: 'private_draft',
+          draft_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        },
+      })),
+    }, GROUP_ID)).toEqual({ status: 'unavailable', items: [] })
+    expect(parseGroupCreationExpenseDrafts({
+      contract_version: 1, status: 'none', rows: [],
+    }, 'not-a-group')).toEqual({ status: 'unavailable', items: [] })
+  })
+})
+
 describe('SQL159 shared-draft detail contract', () => {
   function detail(overrides: Record<string, unknown> = {}) {
     return {
@@ -662,5 +814,64 @@ describe('SQL159 shared-draft detail contract', () => {
     })],
   ])('fails the whole detail payload closed: %s', (_label, payload) => {
     expect(parseExpenseSharedDraftDetail(payload)).toEqual({ status: 'unavailable' })
+  })
+})
+
+describe('SQL175 shared-draft management target contract', () => {
+  it('maps only exact author-private and participant-shared targets', () => {
+    expect(parseExpenseSharedDraftManagementTarget({
+      contract_version: 1,
+      status: 'ready',
+      viewer_role: 'author',
+      detail_target: { kind: 'private_draft', draft_id: DRAFT_ID },
+    })).toEqual({
+      status: 'ready',
+      viewerRole: 'author',
+      detailTarget: { kind: 'private_draft', draftId: DRAFT_ID },
+    })
+    expect(parseExpenseSharedDraftManagementTarget({
+      contract_version: 1,
+      status: 'ready',
+      viewer_role: 'participant',
+      detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+    })).toEqual({
+      status: 'ready',
+      viewerRole: 'participant',
+      detailTarget: { kind: 'shared_draft', publicationId: PUBLICATION_ID },
+    })
+    expect(parseExpenseSharedDraftManagementTarget({
+      contract_version: 1,
+      status: 'not_found',
+    })).toEqual({ status: 'not_found' })
+  })
+
+  it.each([
+    ['author with shared target', {
+      contract_version: 1,
+      status: 'ready',
+      viewer_role: 'author',
+      detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+    }],
+    ['participant with private target', {
+      contract_version: 1,
+      status: 'ready',
+      viewer_role: 'participant',
+      detail_target: { kind: 'private_draft', draft_id: DRAFT_ID },
+    }],
+    ['extra target field', {
+      contract_version: 1,
+      status: 'ready',
+      viewer_role: 'participant',
+      detail_target: {
+        kind: 'shared_draft', publication_id: PUBLICATION_ID, href: '/private',
+      },
+    }],
+    ['extra not-found field', {
+      contract_version: 1, status: 'not_found', visible: false,
+    }],
+  ])('fails management target closed for %s', (_label, value) => {
+    expect(parseExpenseSharedDraftManagementTarget(value)).toEqual({
+      status: 'unavailable',
+    })
   })
 })

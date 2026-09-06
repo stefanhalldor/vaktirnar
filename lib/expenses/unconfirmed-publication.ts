@@ -499,10 +499,10 @@ const groupSharedDraftListWireSchema = z.union([
 
 export interface ExpenseContextDraftItemView {
   lifecycleState: 'private_draft' | 'shared_draft'
-  title: string
-  totalMinor: number
-  currency: ExpenseCurrency
-  incurredOn: string
+  title: string | null
+  totalMinor: number | null
+  currency: ExpenseCurrency | null
+  incurredOn: string | null
   allocationState: 'incomplete' | 'balanced_unconfirmed'
   detailHref: string | null
 }
@@ -532,6 +532,111 @@ export function parseGroupSharedExpenseDrafts(value: unknown): ExpenseContextDra
       incurredOn: row.incurred_on,
       allocationState: row.allocation_state,
       detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${encodeURIComponent(row.publication_id)}`,
+    })),
+  }
+}
+
+const groupPrivateCreationDraftWireSchema = z.object({
+  lifecycle_state: z.literal('private_draft'),
+  draft_id: sql159UuidSchema,
+  draft_version: sql159PositiveSafeIntegerSchema,
+  title: sql159TitleSchema.nullable(),
+  total_minor: sql159PositiveSafeIntegerSchema.nullable(),
+  currency: sql159CurrencySchema.nullable(),
+  incurred_on: sql159DateSchema.nullable(),
+  allocation_state: z.literal('incomplete'),
+  viewer_role: z.literal('author'),
+  detail_target: privateDraftDetailTargetWireSchema,
+}).strict().superRefine((value, context) => {
+  if (value.detail_target.draft_id !== value.draft_id) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['detail_target', 'draft_id'],
+      message: 'draft_target_mismatch',
+    })
+  }
+})
+
+const groupAuthorCreationDraftWireSchema = z.object({
+  ...visibleSharedDraftBaseWire,
+  viewer_role: z.literal('author'),
+  detail_target: privateDraftDetailTargetWireSchema,
+}).strict()
+
+const groupParticipantCreationDraftWireSchema = z.object({
+  ...visibleSharedDraftBaseWire,
+  viewer_role: z.literal('participant'),
+  detail_target: sharedDraftDetailTargetWireSchema,
+}).strict().superRefine((value, context) => {
+  if (value.detail_target.publication_id !== value.publication_id) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['detail_target', 'publication_id'],
+      message: 'publication_target_mismatch',
+    })
+  }
+})
+
+const groupCreationDraftWireSchema = z.union([
+  groupPrivateCreationDraftWireSchema,
+  groupAuthorCreationDraftWireSchema,
+  groupParticipantCreationDraftWireSchema,
+])
+
+const groupCreationDraftListWireSchema = z.union([
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('ready'),
+    rows: z.array(groupCreationDraftWireSchema).min(1).max(100),
+  }).strict(),
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('none'),
+    rows: z.tuple([]),
+  }).strict(),
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('unavailable'),
+    rows: z.tuple([]),
+  }).strict(),
+])
+
+/** SQL175 additive projection. SQL159's shared-only parser remains intact for rollout fallback. */
+export function parseGroupCreationExpenseDrafts(
+  value: unknown,
+  groupId: string,
+): ExpenseContextDraftListView {
+  const parsedGroupId = sql159UuidSchema.safeParse(groupId)
+  if (!parsedGroupId.success) return { status: 'unavailable', items: [] }
+  const parsed = groupCreationDraftListWireSchema.safeParse(value)
+  if (!parsed.success || parsed.data.status === 'unavailable') {
+    return { status: 'unavailable', items: [] }
+  }
+  if (parsed.data.status === 'none') return { status: 'ready', items: [] }
+
+  const targetKeys = parsed.data.rows.map((row) => row.detail_target.kind === 'private_draft'
+    ? `private:${row.detail_target.draft_id}`
+    : `shared:${row.detail_target.publication_id}`)
+  const publicationIds = parsed.data.rows.flatMap((row) => row.lifecycle_state === 'shared_draft'
+    ? [row.publication_id]
+    : [])
+  if (new Set(targetKeys).size !== targetKeys.length
+    || new Set(publicationIds).size !== publicationIds.length) {
+    return { status: 'unavailable', items: [] }
+  }
+
+  return {
+    status: 'ready',
+    items: parsed.data.rows.map((row) => ({
+      lifecycleState: row.lifecycle_state,
+      title: row.title,
+      totalMinor: row.total_minor,
+      currency: row.currency,
+      incurredOn: row.incurred_on,
+      allocationState: row.allocation_state,
+      detailHref: row.detail_target.kind === 'private_draft'
+        ? `/auth-mvp/utlagt-og-endurgreitt/hopar/${encodeURIComponent(parsedGroupId.data)}/nytt-utgjald?draft=${encodeURIComponent(row.detail_target.draft_id)}`
+        : `/auth-mvp/utlagt-og-endurgreitt/drog/${encodeURIComponent(row.detail_target.publication_id)}`,
     })),
   }
 }
@@ -657,4 +762,60 @@ export function parseExpenseSharedDraftDetail(value: unknown): ExpenseSharedDraf
       proposedShareMinor: party.proposed_share_minor,
     })),
   }
+}
+
+const sharedDraftManagementTargetWireSchema = z.union([
+  expenseDraftPublicationNotFoundWireSchema,
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('ready'),
+    viewer_role: z.literal('author'),
+    detail_target: privateDraftDetailTargetWireSchema,
+  }).strict(),
+  z.object({
+    contract_version: z.literal(1),
+    status: z.literal('ready'),
+    viewer_role: z.literal('participant'),
+    detail_target: sharedDraftDetailTargetWireSchema,
+  }).strict(),
+])
+
+export type ExpenseSharedDraftManagementTargetView =
+  | {
+      status: 'ready'
+      viewerRole: 'author'
+      detailTarget: { kind: 'private_draft'; draftId: string }
+    }
+  | {
+      status: 'ready'
+      viewerRole: 'participant'
+      detailTarget: { kind: 'shared_draft'; publicationId: string }
+    }
+  | { status: 'not_found' }
+  | { status: 'unavailable' }
+
+/** SQL175 author-routing projection; contains no draft payload or audience data. */
+export function parseExpenseSharedDraftManagementTarget(
+  value: unknown,
+): ExpenseSharedDraftManagementTargetView {
+  const parsed = sharedDraftManagementTargetWireSchema.safeParse(value)
+  if (!parsed.success) return { status: 'unavailable' }
+  if (parsed.data.status === 'not_found') return { status: 'not_found' }
+  return parsed.data.viewer_role === 'author'
+    ? {
+        status: 'ready',
+        viewerRole: 'author',
+        detailTarget: {
+          kind: 'private_draft',
+          draftId: parsed.data.detail_target.draft_id,
+        },
+      }
+    : {
+        status: 'ready',
+        viewerRole: 'participant',
+        detailTarget: {
+          kind: 'shared_draft',
+          publicationId: parsed.data.detail_target.publication_id,
+        },
+      }
 }

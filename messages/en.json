@@ -1468,6 +1468,8 @@
         "backToExpense": "Back to the confirmed expense"
       },
       "sharedDraftDetail": {
+        "managementUnavailableHeading": "Expense management could not be opened",
+        "managementUnavailableBody": "Check the status again before editing, stopping sharing, or deleting the expense.",
         "lifecycle": "Drafts with others",
         "helper": "This is still in progress and does not affect your balance.",
         "summary": "Draft summary",
@@ -1957,6 +1959,42 @@
         "demotionConfirm": "Restrict visibility",
         "cancel": "Cancel"
       },
+      "deleteControl": {
+        "deleteOnly": {
+          "pageTitle": "Delete expense",
+          "heading": "This draft can no longer be edited",
+          "body": "You can still delete the draft permanently. Confirmed expenses, the group, and settlements will not change."
+        },
+        "trigger": "Delete expense",
+        "confirm": "Delete expense",
+        "deleting": "Deleting expense...",
+        "keep": "Keep expense",
+        "close": "Close",
+        "closeLabel": "Close confirmation",
+        "checkStatus": "Check status",
+        "checkingStatus": "Checking status...",
+        "unavailable": "We could not verify whether this expense can be deleted right now. Reload its status before trying again.",
+        "subjects": {
+          "privateDraft": {
+            "title": "Delete the draft?",
+            "description": "The draft will be permanently deleted. It has not affected balances or settlement. This cannot be undone."
+          },
+          "sharedDraft": {
+            "title": "Delete the shared draft?",
+            "description": "The draft and its sharing will be permanently deleted. Others will lose access, and this cannot be undone."
+          },
+          "confirmedExpense": {
+            "title": "Delete the confirmed expense?",
+            "description": "All information about this expense, its allocation and related history will be permanently deleted. This cannot be undone."
+          }
+        },
+        "blocked": {
+          "not_active": "Only an active expense in an active group can be deleted.",
+          "open_revision": "Discard the open changes first. The confirmed expense stays unchanged until you separately choose to delete it.",
+          "settlement_history": "This expense cannot be deleted after settlement has started in the group.",
+          "unsafe_context": "This expense cannot be deleted safely."
+        }
+      },
       "expense": {
         "paid": "Paid at purchase",
         "shares": "Each person's share",
@@ -2256,7 +2294,11 @@
         "not_found": "The record was not found.",
         "conflict": "The data has changed. Reload and try again.",
         "event_roster_changed": "The guest list has changed. Clear the event selection and select the guests again. Your other changes are preserved.",
+        "participant_source_changed": "A selected person is no longer available. Open the participant picker, remove that person, then select them again.",
+        "duplicate_participant": "The same person appears to be selected more than once. Remove the duplicate entry and try again.",
+        "author_required": "You must be either a payer or a participant in the expense.",
         "save_failed": "Save failed. Please try again.",
+        "save_outcome_unknown": "We could not confirm the outcome. Do not try again yet. Reload the page and check its current state first.",
         "load_failed": "The data could not be loaded.",
         "revision_open": "This expense is being edited. Try again after the new allocation is confirmed.",
         "delete_open_revision": "Remove the open edit draft, then try again.",
@@ -2267,6 +2309,9 @@
         "delivery_failed": "The invitation was saved but delivery failed. Try sending it again.",
         "draftSaveFailed": "The changes could not be saved automatically.",
         "draftPublicationUnavailable": "We could not verify the draft state. Try again.",
+        "mutationErrorTitle": "The action failed",
+        "mutationErrorDismiss": "OK",
+        "mutationErrorCloseLabel": "Close error message",
         "eventRelationNotBound": "The draft was saved, but it could not be linked to the event. Try again.",
         "confirmExpenseAllocation": "Review the allocation and check “This allocation is correct”.",
         "sharedDraftChangesPending": "Share your changes or stop sharing before confirming the expense.",

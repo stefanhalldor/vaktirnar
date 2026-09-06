@@ -45,6 +45,7 @@ import type {
   ExpenseActivityView,
   ExpenseBalanceView,
   ExpenseDashboardView,
+  ExpenseCreationDraftDeleteCapabilityView,
   ExpenseDeleteCapabilityView,
   ExpenseGroupView,
   ExpenseGroupSummaryView,
@@ -79,12 +80,15 @@ import {
   parseExpenseDraftPublicationLifecycle,
   parseExpenseDraftEventRelationResult,
   parseExpenseSharedDraftDetail,
+  parseExpenseSharedDraftManagementTarget,
+  parseGroupCreationExpenseDrafts,
   parseGroupSharedExpenseDrafts,
   parseVisibleSharedExpenseDrafts,
   type ExpenseContextDraftListView,
   type ExpenseDraftPublicationLifecycleView,
   type ExpenseDraftEventRelationResultView,
   type ExpenseSharedDraftDetailView,
+  type ExpenseSharedDraftManagementTargetView,
   type ExpenseSharedDraftListView,
 } from './unconfirmed-publication'
 
@@ -283,6 +287,52 @@ function parseExpenseDeleteCapabilityResponse(value: unknown): ExpenseDeleteCapa
     return { status: 'blocked', reason: source.reason }
   }
   return { status: 'unavailable' }
+}
+
+function parseExpenseCreationDraftDeleteCapabilityResponse(
+  value: unknown,
+): ExpenseCreationDraftDeleteCapabilityView {
+  const source = record(value)
+  if (!source || source.contract_version !== 1 || typeof source.status !== 'string') {
+    return { status: 'unavailable' }
+  }
+  const keys = Object.keys(source).sort().join(',')
+  if (source.status === 'not_found') {
+    return keys === 'contract_version,status,visible' && source.visible === false
+      ? { status: 'not_found' }
+      : { status: 'unavailable' }
+  }
+  if (source.status !== 'ready'
+    || keys !== 'allowed,context_type,contract_version,draft_id,expected_draft_version,expected_publication_version,group_id,status,subject,visible'
+    || source.visible !== true
+    || source.allowed !== true
+    || (source.subject !== 'private_draft' && source.subject !== 'shared_draft')
+    || (source.context_type !== 'one_off' && source.context_type !== 'group')
+    || (source.group_id !== null
+      && (typeof source.group_id !== 'string' || !EXPENSE_UUID_PATTERN.test(source.group_id)))
+    || (source.context_type === 'one_off' && source.group_id !== null)
+    || (source.context_type === 'group' && source.group_id === null)
+    || typeof source.draft_id !== 'string'
+    || !EXPENSE_UUID_PATTERN.test(source.draft_id)
+    || typeof source.expected_draft_version !== 'number'
+    || !Number.isSafeInteger(source.expected_draft_version)
+    || source.expected_draft_version < 1
+    || (source.expected_publication_version !== null
+      && (typeof source.expected_publication_version !== 'number'
+        || !Number.isSafeInteger(source.expected_publication_version)
+        || source.expected_publication_version < 1))
+    || (source.subject === 'shared_draft' && source.expected_publication_version === null)) {
+    return { status: 'unavailable' }
+  }
+  return {
+    status: 'ready',
+    subject: source.subject,
+    contextType: source.context_type,
+    groupId: source.group_id,
+    draftId: source.draft_id,
+    expectedDraftVersion: source.expected_draft_version,
+    expectedPublicationVersion: source.expected_publication_version,
+  }
 }
 
 function boundedString(value: unknown, maximum: number): string | null {
@@ -1547,12 +1597,22 @@ export async function getGroupSharedExpenseDrafts(
   if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(groupId)) {
     return { status: 'unavailable', items: [] }
   }
-  const { data, error } = await getAdmin().rpc('expense_list_group_shared_drafts', {
+  const input = {
     p_actor_id: actorUserId,
     p_group_id: groupId,
-  })
-  if (error) return { status: 'unavailable', items: [] }
-  return parseGroupSharedExpenseDrafts(data)
+  }
+  const current = await getAdmin().rpc('expense_list_group_creation_drafts_v1', input)
+  if (!current.error) return parseGroupCreationExpenseDrafts(current.data, groupId)
+  if (!isMissingOptionalExpenseFunction(
+    current.error,
+    'expense_list_group_creation_drafts_v1',
+  )) return { status: 'unavailable', items: [] }
+
+  // Zero-downtime fallback while SQL175 is not yet installed. It intentionally
+  // lacks creator-private drafts but preserves the SQL159 shared projection.
+  const predecessor = await getAdmin().rpc('expense_list_group_shared_drafts', input)
+  if (predecessor.error) return { status: 'unavailable', items: [] }
+  return parseGroupSharedExpenseDrafts(predecessor.data)
 }
 
 export async function getExpenseSharedDraftDetail(
@@ -2009,6 +2069,27 @@ export async function getExpenseEditRevisionState(
   }
 }
 
+export async function getExpenseSharedDraftManagementTarget(
+  actorUserId: string,
+  publicationId: string,
+): Promise<ExpenseSharedDraftManagementTargetView> {
+  if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(publicationId)) {
+    return { status: 'not_found' }
+  }
+  const { data, error } = await getAdmin().rpc(
+    'expense_get_shared_draft_management_target_v1',
+    { p_actor_id: actorUserId, p_publication_id: publicationId },
+  )
+  if (error) return { status: 'unavailable' }
+  const target = parseExpenseSharedDraftManagementTarget(data)
+  if (target.status === 'ready'
+    && target.viewerRole === 'participant'
+    && target.detailTarget.publicationId !== publicationId) {
+    return { status: 'unavailable' }
+  }
+  return target
+}
+
 export async function getExpenseDeleteCapability(
   actorUserId: string,
   expenseId: string,
@@ -2023,6 +2104,28 @@ export async function getExpenseDeleteCapability(
     })
     if (error) return { status: 'unavailable' }
     return parseExpenseDeleteCapabilityResponse(data)
+  } catch {
+    return { status: 'unavailable' }
+  }
+}
+
+export async function getExpenseCreationDraftDeleteCapability(
+  actorUserId: string,
+  draftId: string,
+): Promise<ExpenseCreationDraftDeleteCapabilityView> {
+  if (!EXPENSE_UUID_PATTERN.test(actorUserId) || !EXPENSE_UUID_PATTERN.test(draftId)) {
+    return { status: 'unavailable' }
+  }
+  try {
+    const { data, error } = await getAdmin().rpc(
+      'expense_get_own_creation_draft_delete_capability_v1',
+      { p_actor_id: actorUserId, p_draft_id: draftId },
+    )
+    if (error) return { status: 'unavailable' }
+    const capability = parseExpenseCreationDraftDeleteCapabilityResponse(data)
+    return capability.status === 'ready' && capability.draftId !== draftId
+      ? { status: 'unavailable' }
+      : capability
   } catch {
     return { status: 'unavailable' }
   }

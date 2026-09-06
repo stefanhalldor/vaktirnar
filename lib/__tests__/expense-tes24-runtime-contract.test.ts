@@ -64,10 +64,10 @@ describe('TES-24 runtime contract', () => {
   it('does not interrupt terminal mutations with an intermediate draft-route reload', () => {
     const form = read('components/expenses/ExpenseForm.tsx')
     expect(form).toMatch(
-      /function saveExpenseChanges\(\)[\s\S]+?persistDraft\(currentStep, \{ replaceRouteAfterSave: false \}\)[\s\S]+?reconfirmExpenseEditRevision/,
+      /function saveExpenseChanges\(\)[\s\S]+?persistDraft\(currentStep, \{[\s\S]+?replaceRouteAfterSave: false,[\s\S]+?retainReturnFocus: true,[\s\S]+?\}\)[\s\S]+?reconfirmExpenseEditRevision/,
     )
     expect(form).toMatch(
-      /function finalizeDraft\(\)[\s\S]+?persistDraft\(currentStep, \{ replaceRouteAfterSave: false \}\)[\s\S]+?finalizeExpenseDraft/,
+      /function finalizeDraft\(\)[\s\S]+?persistDraft\(currentStep, \{[\s\S]+?replaceRouteAfterSave: false,[\s\S]+?retainReturnFocus: true,[\s\S]+?\}\)[\s\S]+?finalizeExpenseDraft/,
     )
     expect(form).toMatch(
       /async function advanceStep\(\)[\s\S]+?persistDraft\(nextStep\)/,

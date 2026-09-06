@@ -44,6 +44,7 @@ export async function ExpenseItemDetail({
   relationshipIdentityManagementState = { status: 'absent' },
   revisionState = { status: 'none', canOpen: false, openReason: 'unavailable' },
   deleteCapability = { status: 'unavailable' },
+  deleteSuccessHref = '/auth-mvp/utlagt-og-endurgreitt',
 }: {
   group: ExpenseGroupView
   expense: ExpenseItemView
@@ -59,6 +60,7 @@ export async function ExpenseItemDetail({
   relationshipIdentityManagementState?: ExpenseRelationshipIdentityManagementState
   revisionState?: ExpenseEditRevisionStateView
   deleteCapability?: ExpenseDeleteCapabilityView
+  deleteSuccessHref?: string
 }) {
   const [t, locale] = await Promise.all([getExpenseTranslations(), getLocale()])
   const hasLockedRepayment = group.repayments.some(
@@ -448,12 +450,15 @@ export async function ExpenseItemDetail({
 
       {((view === 'review' && (canEdit || canCancel))
         || deleteCapability.status === 'available'
-        || deleteCapability.status === 'blocked') ? (
+        || deleteCapability.status === 'blocked'
+        || (expense.createdBySelf && deleteCapability.status === 'unavailable')) ? (
         <ExpenseItemActions
           expenseId={expense.id}
           canEdit={false}
           canCancel={view === 'review' && canCancel}
           deleteCapability={deleteCapability}
+          deleteCreatorKnown={expense.createdBySelf}
+          deleteSuccessHref={deleteSuccessHref}
         />
       ) : null}
     </div>

@@ -33,6 +33,8 @@ import {
 } from '@/lib/expenses/splits'
 import type {
   ExpenseActionErrorCode,
+  ExpenseCreationDraftDeleteCapabilityView,
+  ExpenseDeleteCapabilityView,
   ExpenseItemView,
   ExpenseParticipantOption,
   ExpenseRepaymentView,
@@ -57,6 +59,8 @@ import { summarizeExpenseRepaymentsByPayer } from '@/lib/expenses/repayment-stat
 import { useExpenseTranslations } from './i18n.client'
 import { useExpenseMutationRequestIds } from './request-id'
 import { ExpenseRepaymentStatusLines } from './ExpenseRepaymentStatusLines'
+import { ExpenseMutationErrorDialog } from './ExpenseMutationErrorDialog'
+import { ExpenseDeleteControl, type ExpenseDeleteTarget } from './ExpenseDeleteControl'
 import {
   ExpenseParticipantPicker,
   type ManualExpenseParticipant,
@@ -91,6 +95,34 @@ interface AllocationDraft {
   weight?: string
 }
 
+function draftNeedsMemberDomainRewrite(
+  payload: ExpenseDraftPayload,
+  enforceAuthorMembership: boolean,
+): boolean {
+  const memberKeys = new Set(payload.members.map((member) => member.key))
+  const selfKey = payload.members.find((member) => member.isSelf)?.key
+  const hasExactDomain = (record: Record<string, unknown>) => {
+    const keys = Object.keys(record)
+    return keys.length === memberKeys.size && keys.every((key) => memberKeys.has(key))
+  }
+  return [
+    payload.included,
+    payload.payments,
+    payload.amounts,
+    payload.percentages,
+    payload.weights,
+  ].some((record) => !hasExactDomain(record))
+    || payload.payerKeys.length === 0
+    || new Set(payload.payerKeys).size !== payload.payerKeys.length
+    || payload.payerKeys.some((key) => !memberKeys.has(key))
+    || Boolean(
+      enforceAuthorMembership
+      && selfKey
+      && payload.included[selfKey] === false
+      && !payload.payerKeys.includes(selfKey),
+    )
+}
+
 function expenseEditErrorKey(error: ExpenseActionErrorCode) {
   switch (error) {
     case 'invalid_input':
@@ -122,6 +154,10 @@ interface ExpenseFormProps {
   draft?: ExpensePrivateDraftView | null
   initialDraftId?: string
   publicationLifecycle?: ExpenseDraftPublicationLifecycleView | null
+  creationDraftDeleteCapability?: ExpenseCreationDraftDeleteCapabilityView
+  confirmedDeleteCapability?: ExpenseDeleteCapabilityView
+  deleteStatusHref?: string
+  deleteSuccessHref?: string
   draftBaseHref?: string
   /** Present only when both Events and Expenses gates are authorized. */
   eventSources?: EventExpenseSourceView[]
@@ -254,6 +290,10 @@ export function ExpenseForm({
   draft = null,
   initialDraftId,
   publicationLifecycle = null,
+  creationDraftDeleteCapability,
+  confirmedDeleteCapability,
+  deleteStatusHref = '/auth-mvp/utlagt-og-endurgreitt',
+  deleteSuccessHref,
   draftBaseHref = '',
   eventSources,
   eventSourcePresentation,
@@ -270,14 +310,34 @@ export function ExpenseForm({
   const alertRef = useRef<HTMLParagraphElement>(null)
   const initialDraftPayload = draft?.payload
   const startingMembers = initialDraftPayload?.members ?? initialMembers
+  const startingMemberKeys = new Set(startingMembers.map((member) => member.key))
+  const rawStartingPayerKeys = initialDraftPayload?.payerKeys
+    ?? initialPayerKeys(startingMembers, edit?.expense)
+  const validStartingPayerKeys = rawStartingPayerKeys.filter((key, index) => (
+    startingMemberKeys.has(key) && rawStartingPayerKeys.indexOf(key) === index
+  ))
+  const fallbackStartingPayerKey = startingMembers.find((member) => member.isSelf)?.key
+    ?? startingMembers[0]?.key
+  const startingPayerKeys = validStartingPayerKeys.length > 0
+    ? validStartingPayerKeys
+    : fallbackStartingPayerKey
+      ? [fallbackStartingPayerKey]
+      : []
+  const startingIncluded = Object.fromEntries(startingMembers.map((member) => [
+    member.key,
+    initialDraftPayload?.included[member.key] ?? (member.included !== false),
+  ]))
+  const startingSelfKey = startingMembers.find((member) => member.isSelf)?.key
+  if (!edit && startingSelfKey && !startingPayerKeys.includes(startingSelfKey)) {
+    startingIncluded[startingSelfKey] = true
+  }
   const startingStep = draft?.currentStep ?? initialStep
   const [members, setMembers] = useState<FormMember[]>(startingMembers)
   const [removedMemberIds, setRemovedMemberIds] = useState<string[]>(
     initialDraftPayload?.removedMemberIds ?? [],
   )
   const [included, setIncluded] = useState<Record<string, boolean>>(
-    initialDraftPayload?.included
-      ?? Object.fromEntries(startingMembers.map((member) => [member.key, member.included !== false])),
+    startingIncluded,
   )
   const [title, setTitle] = useState(initialDraftPayload?.title ?? edit?.expense.title ?? '')
   const [total, setTotal] = useState(
@@ -303,7 +363,7 @@ export function ExpenseForm({
     })),
   )
   const [payerKeys, setPayerKeys] = useState<string[]>(() => (
-    initialDraftPayload?.payerKeys ?? initialPayerKeys(startingMembers, edit?.expense)
+    startingPayerKeys
   ))
   const initialAllocations = initialAllocationValues(edit?.expense)
   const [amounts, setAmounts] = useState<Record<string, string>>(initialDraftPayload?.amounts ?? initialAllocations.amounts)
@@ -335,6 +395,8 @@ export function ExpenseForm({
   )
   const [eventWarningDismissed, setEventWarningDismissed] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mutationError, setMutationError] = useState<string | null>(null)
+  const mutationReturnFocusRef = useRef<HTMLElement | null>(null)
   const [relationNotice, setRelationNotice] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState<ExpenseFlowStep>(startingStep)
   const [highestVisitedStep, setHighestVisitedStep] = useState(edit ? EXPENSE_FLOW_STEPS.length - 1 : 0)
@@ -343,6 +405,9 @@ export function ExpenseForm({
   const draftVersionRef = useRef<number | null>(draft?.version ?? null)
   const draftStepRef = useRef<ExpenseFlowStep | null>(draft?.currentStep ?? null)
   const draftSavingRef = useRef<Promise<boolean> | null>(null)
+  const draftMemberDomainRewriteRef = useRef(
+    initialDraftPayload ? draftNeedsMemberDomainRewrite(initialDraftPayload, !edit) : false,
+  )
   const [currentPublicationLifecycle, setCurrentPublicationLifecycle] = useState<ExpenseDraftPublicationLifecycleView | null>(
     publicationLifecycle ?? (draft && !edit ? { status: 'unavailable' } : null),
   )
@@ -352,6 +417,7 @@ export function ExpenseForm({
   const [consumedDraftId, setConsumedDraftId] = useState<string | null>(null)
   const consumedDraftIdRef = useRef<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [deletePending, setDeletePending] = useState(false)
   const draftFingerprint = JSON.stringify({
     members,
     removedMemberIds,
@@ -407,6 +473,20 @@ export function ExpenseForm({
   }, [allocationFingerprint])
 
   function draftPayload(): ExpenseDraftPayload {
+    // Form state can briefly retain values for a participant that was removed
+    // (for example while React batches the removal). Keep the persisted wire
+    // contract exact by deriving every member-keyed collection from the
+    // current member list at the serialization boundary.
+    const memberKeys = new Set(members.map((member) => member.key))
+    const validPayerKeys = payerKeys.filter((key, index) => (
+      memberKeys.has(key) && payerKeys.indexOf(key) === index
+    ))
+    const fallbackPayerKey = members.find((member) => member.isSelf)?.key ?? members[0]?.key
+    const scopedPayerKeys = validPayerKeys.length > 0
+      ? validPayerKeys
+      : fallbackPayerKey
+        ? [fallbackPayerKey]
+        : []
     return redactExpenseDraftEventGuestLabels({
       circleId: circleId || null,
       eventId: eventId || null,
@@ -422,7 +502,12 @@ export function ExpenseForm({
         ...(member.included === undefined ? {} : { included: member.included }),
       })),
       removedMemberIds,
-      included,
+      included: Object.fromEntries(members.map((member) => [
+        member.key,
+        !edit && member.isSelf && !scopedPayerKeys.includes(member.key)
+          ? true
+          : included[member.key] !== false,
+      ])),
       title,
       total,
       currency: currency as ExpenseDraftPayload['currency'],
@@ -430,24 +515,45 @@ export function ExpenseForm({
       category,
       note,
       splitMethod,
-      payments,
-      payerKeys,
-      amounts,
-      percentages,
-      weights,
+      payments: Object.fromEntries(members.map((member) => [
+        member.key,
+        payments[member.key] ?? '',
+      ])),
+      payerKeys: scopedPayerKeys,
+      amounts: Object.fromEntries(members.map((member) => [
+        member.key,
+        amounts[member.key] ?? '0',
+      ])),
+      percentages: Object.fromEntries(members.map((member) => [
+        member.key,
+        percentages[member.key] ?? '',
+      ])),
+      weights: Object.fromEntries(members.map((member) => [
+        member.key,
+        weights[member.key] ?? '1',
+      ])),
       preserveShares,
     })
   }
 
   async function persistDraft(
     step: ExpenseFlowStep,
-    { replaceRouteAfterSave = true }: { replaceRouteAfterSave?: boolean } = {},
+    {
+      replaceRouteAfterSave = true,
+      retainReturnFocus = false,
+    }: {
+      replaceRouteAfterSave?: boolean
+      retainReturnFocus?: boolean
+    } = {},
   ): Promise<boolean> {
+    if (!retainReturnFocus) rememberMutationReturnFocus()
     if (consumedDraftIdRef.current !== null) return false
     if (draftVersionRef.current !== null
       && draftStepRef.current === step
-      && initialDraftFingerprint.current === draftFingerprint) {
+      && initialDraftFingerprint.current === draftFingerprint
+      && !draftMemberDomainRewriteRef.current) {
       setDraftStatus('saved')
+      if (!retainReturnFocus) mutationReturnFocusRef.current = null
       return true
     }
     if (draftSavingRef.current) return draftSavingRef.current
@@ -474,17 +580,16 @@ export function ExpenseForm({
         })
         if (!result.ok) {
           setDraftStatus('error')
-          setError(t(edit ? expenseEditErrorKey(result.error) : 'errors.draftSaveFailed'))
-          queueMicrotask(() => alertRef.current?.focus())
+          showMutationError(edit ? expenseEditErrorKey(result.error) : 'errors.draftSaveFailed')
           return false
         }
         draftIdRef.current = result.data.draftId
         draftVersionRef.current = result.data.version
         draftStepRef.current = step
+        draftMemberDomainRewriteRef.current = false
         if (result.data.relationStatus === 'not_bound') {
           setDraftStatus('error')
-          setError(t('errors.eventRelationNotBound'))
-          queueMicrotask(() => alertRef.current?.focus())
+          showMutationError('errors.eventRelationNotBound')
           if (draftBaseHref) {
             const separator = draftBaseHref.includes('?') ? '&' : '?'
             router.replace(`${draftBaseHref}${separator}draft=${result.data.draftId}`)
@@ -503,12 +608,13 @@ export function ExpenseForm({
         if (draftBaseHref && replaceRouteAfterSave) {
           const separator = draftBaseHref.includes('?') ? '&' : '?'
           router.replace(`${draftBaseHref}${separator}draft=${result.data.draftId}`)
+          if (!draft) router.refresh()
         }
+        if (!retainReturnFocus) mutationReturnFocusRef.current = null
         return true
       } catch {
         setDraftStatus('error')
-        setError(t('errors.draftSaveFailed'))
-        queueMicrotask(() => alertRef.current?.focus())
+        showMutationError('errors.draftSaveFailed')
         return false
       } finally {
         draftSavingRef.current = null
@@ -762,12 +868,23 @@ export function ExpenseForm({
     setMembers(remainingMembers)
     setPayerKeys(fallbackPayer ? [fallbackPayer.key] : nextPayerKeys)
     setPayments((current) => ({
-      ...current,
-      [key]: '',
+      ...Object.fromEntries(Object.entries(current).filter(([entryKey]) => entryKey !== key)),
       ...(fallbackPayer
         ? { [fallbackPayer.key]: current[fallbackPayer.key]?.trim() ? current[fallbackPayer.key] : removedPayment }
         : {}),
     }))
+    setIncluded((current) => Object.fromEntries(
+      Object.entries(current).filter(([entryKey]) => entryKey !== key),
+    ))
+    setAmounts((current) => Object.fromEntries(
+      Object.entries(current).filter(([entryKey]) => entryKey !== key),
+    ))
+    setPercentages((current) => Object.fromEntries(
+      Object.entries(current).filter(([entryKey]) => entryKey !== key),
+    ))
+    setWeights((current) => Object.fromEntries(
+      Object.entries(current).filter(([entryKey]) => entryKey !== key),
+    ))
   }
 
   function changeTotal(value: string) {
@@ -790,9 +907,13 @@ export function ExpenseForm({
   function changePayer(index: number, nextKey: string) {
     const previousKey = payerKeys[index]
     if (!previousKey || previousKey === nextKey || payerKeys.includes(nextKey)) return
+    const previousMember = members.find((member) => member.key === previousKey)
     setPayerKeys((current) => current.map((key, payerIndex) => (
       payerIndex === index ? nextKey : key
     )))
+    if (!edit && previousMember?.isSelf && included[previousKey] === false) {
+      setIncluded((current) => ({ ...current, [previousKey]: true }))
+    }
     setPayments((current) => ({
       ...current,
       [previousKey]: '',
@@ -810,6 +931,9 @@ export function ExpenseForm({
   function removePayer(key: string) {
     if (payerKeys.length <= 1) return
     setPayerKeys((current) => current.filter((payerKey) => payerKey !== key))
+    if (!edit && members.find((member) => member.key === key)?.isSelf && included[key] === false) {
+      setIncluded((current) => ({ ...current, [key]: true }))
+    }
     setPayments((current) => ({ ...current, [key]: '' }))
   }
 
@@ -1041,6 +1165,7 @@ export function ExpenseForm({
     || draftStatus === 'saving'
     || publicationAction !== null
     || consumedDraftId !== null
+    || deletePending
   const stepItems: TeskeidStepNavItem<ExpenseFlowStep>[] = EXPENSE_FLOW_STEPS.map((step, index) => ({
     id: step,
     label: t(`expenseForm.steps.${step}`),
@@ -1058,7 +1183,22 @@ export function ExpenseForm({
       : undefined,
   }))
 
+  function rememberMutationReturnFocus() {
+    const activeElement = document.activeElement
+    mutationReturnFocusRef.current = activeElement instanceof HTMLElement
+      && activeElement !== document.body
+      ? activeElement
+      : null
+  }
+
   function showMutationError(messageKey: string) {
+    if (mutationReturnFocusRef.current === null) rememberMutationReturnFocus()
+    setError(null)
+    setMutationError(t(messageKey))
+  }
+
+  function showValidationError(messageKey: string) {
+    setMutationError(null)
     setError(t(messageKey))
     queueMicrotask(() => alertRef.current?.focus())
   }
@@ -1094,10 +1234,12 @@ export function ExpenseForm({
     action: 'share' | 'unshare' | 'finalize',
     execute: () => Promise<void>,
   ) {
+    rememberMutationReturnFocus()
     if (publicationActionRef.current || consumedDraftIdRef.current !== null) return
     publicationActionRef.current = action
     setPublicationAction(action)
     setError(null)
+    setMutationError(null)
     startTransition(async () => {
       try {
         await execute()
@@ -1114,7 +1256,10 @@ export function ExpenseForm({
 
   function shareDraft() {
     runPublicationAction('share', async () => {
-      if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
+      if (!await persistDraft(currentStep, {
+        replaceRouteAfterSave: false,
+        retainReturnFocus: true,
+      })) return
       const lifecycle = await loadCurrentPublicationLifecycle()
       if (!lifecycle) return
       const expectedPublicationVersion = lifecycle.sharingState === 'never_shared'
@@ -1150,13 +1295,21 @@ export function ExpenseForm({
         expectedPublicationVersion: result.data.publicationVersion,
         hasUnsharedChanges: false,
       })
+      if (!draft && draftBaseHref) {
+        const separator = draftBaseHref.includes('?') ? '&' : '?'
+        router.replace(`${draftBaseHref}${separator}draft=${result.data.draftId}`)
+        router.refresh()
+      }
     })
   }
 
   function unshareDraft() {
     if (!window.confirm(t('expenseForm.unshareDraftConfirmation'))) return
     runPublicationAction('unshare', async () => {
-      if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
+      if (!await persistDraft(currentStep, {
+        replaceRouteAfterSave: false,
+        retainReturnFocus: true,
+      })) return
       const lifecycle = await loadCurrentPublicationLifecycle()
       if (!lifecycle
         || lifecycle.sharingState !== 'shared'
@@ -1195,17 +1348,20 @@ export function ExpenseForm({
 
   function finalizeDraft() {
     if (confirmedAllocationFingerprint !== allocationFingerprint || !isStepValid('split')) {
-      showMutationError('errors.confirmExpenseAllocation')
+      showValidationError('errors.confirmExpenseAllocation')
       return
     }
     runPublicationAction('finalize', async () => {
-      if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
+      if (!await persistDraft(currentStep, {
+        replaceRouteAfterSave: false,
+        retainReturnFocus: true,
+      })) return
       const lifecycle = await loadCurrentPublicationLifecycle()
       if (!lifecycle) return
       if (lifecycle.sharingState === 'shared'
         && (lifecycle.hasUnsharedChanges !== false
           || sharedUiFingerprintRef.current !== shareableUiFingerprint)) {
-        showMutationError('errors.sharedDraftChangesPending')
+        showValidationError('errors.sharedDraftChangesPending')
         return
       }
       const expectedPublicationVersion = lifecycle.sharingState === 'shared'
@@ -1242,15 +1398,19 @@ export function ExpenseForm({
 
   function saveExpenseChanges() {
     if (!edit) return
+    rememberMutationReturnFocus()
     setError(null)
+    setMutationError(null)
     if (confirmedAllocationFingerprint !== allocationFingerprint) {
-      showMutationError('errors.confirmExpenseAllocation')
+      showValidationError('errors.confirmExpenseAllocation')
       return
     }
     if (publicationUnavailable || sharedHasUnsharedChanges) {
-      showMutationError(sharedHasUnsharedChanges
-        ? 'errors.sharedDraftChangesPending'
-        : 'errors.draftPublicationUnavailable')
+      if (sharedHasUnsharedChanges) {
+        showValidationError('errors.sharedDraftChangesPending')
+      } else {
+        showMutationError('errors.draftPublicationUnavailable')
+      }
       return
     }
     const invalidStep = EXPENSE_FLOW_STEPS.find((step) => !isStepValid(step))
@@ -1297,7 +1457,10 @@ export function ExpenseForm({
     }
     startTransition(async () => {
       try {
-        if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
+        if (!await persistDraft(currentStep, {
+          replaceRouteAfterSave: false,
+          retainReturnFocus: true,
+        })) return
         const requestPayload = {
           ...editPayloadBase,
           draft_id: draftIdRef.current,
@@ -1312,22 +1475,21 @@ export function ExpenseForm({
           request_id: requestIds.forPayload(requestPayload),
         })
         if (!result.ok) {
-          setError(t(expenseEditErrorKey(result.error)))
-          queueMicrotask(() => alertRef.current?.focus())
+          showMutationError(expenseEditErrorKey(result.error))
           return
         }
         requestIds.succeeded(requestPayload)
         router.push(`/auth-mvp/utlagt-og-endurgreitt/utgjold/${result.data.expenseId}`)
         router.refresh()
       } catch {
-        setError(t('errors.save_failed'))
-        queueMicrotask(() => alertRef.current?.focus())
+        showMutationError('errors.save_failed')
       }
     })
   }
 
   function discardRevision() {
     if (!edit || draftVersionRef.current === null) return
+    rememberMutationReturnFocus()
     if (!window.confirm(t('expenseForm.discardEditRevisionConfirmation'))) return
     const lifecycle = currentPublicationLifecycle?.status === 'ready'
       ? currentPublicationLifecycle
@@ -1364,6 +1526,7 @@ export function ExpenseForm({
 
   async function saveDraftOnly() {
     setError(null)
+    setMutationError(null)
     if (!await persistDraft(currentStep, { replaceRouteAfterSave: false })) return
     router.push('/auth-mvp/utlagt-og-endurgreitt')
     router.refresh()
@@ -1428,6 +1591,44 @@ export function ExpenseForm({
       ? t('expenseForm.draftSaving')
       : t('expenseForm.saveAndClose')
   }
+
+  const liveCreationDraftDeleteCapability = (() => {
+    if (creationDraftDeleteCapability?.status !== 'ready'
+      || draftVersionRef.current === null) return creationDraftDeleteCapability
+    const capabilityMatchesBoundForm = creationDraftDeleteCapability.draftId === draftIdRef.current
+      && creationDraftDeleteCapability.contextType === mode
+      && (mode === 'one_off'
+        ? creationDraftDeleteCapability.groupId === null
+        : creationDraftDeleteCapability.groupId === groupId)
+    if (!capabilityMatchesBoundForm) return { status: 'unavailable' as const }
+    const exactLifecycle = currentPublicationLifecycle?.status === 'ready'
+      && currentPublicationLifecycle.draftId === draftIdRef.current
+      && currentPublicationLifecycle.draftVersion === draftVersionRef.current
+        ? currentPublicationLifecycle
+        : null
+    return {
+      ...creationDraftDeleteCapability,
+      draftId: draftIdRef.current,
+      expectedDraftVersion: draftVersionRef.current,
+      ...(exactLifecycle
+        ? {
+            subject: exactLifecycle.sharingState === 'shared'
+              ? 'shared_draft' as const
+              : 'private_draft' as const,
+            expectedPublicationVersion: exactLifecycle.expectedPublicationVersion,
+          }
+        : {}),
+    }
+  })()
+  const deleteTarget: ExpenseDeleteTarget | null = edit && confirmedDeleteCapability
+    ? {
+        kind: 'confirmed_expense',
+        expenseId: edit.expense.id,
+        capability: confirmedDeleteCapability,
+      }
+    : !edit && liveCreationDraftDeleteCapability
+      ? { kind: 'creation_draft', capability: liveCreationDraftDeleteCapability }
+      : null
 
   function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -1669,7 +1870,16 @@ export function ExpenseForm({
             return (
               <div key={member.key} className="flex min-h-12 items-start gap-3 py-3">
                 <label className="flex min-h-11 min-w-0 flex-1 items-start gap-3 text-sm">
-                  <input type="checkbox" className="mt-0.5 size-5 shrink-0" checked={included[member.key] !== false} onChange={(e) => { setIncluded((current) => ({ ...current, [member.key]: e.target.checked })); if (edit) setPreserveShares(false) }} />
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-5 shrink-0"
+                    checked={included[member.key] !== false}
+                    disabled={!edit && member.isSelf && !payerKeys.includes(member.key)}
+                    onChange={(e) => {
+                      setIncluded((current) => ({ ...current, [member.key]: e.target.checked }))
+                      if (edit) setPreserveShares(false)
+                    }}
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="block break-words">{member.label}{member.isSelf ? ` ${t('expenseForm.youSuffix')}` : ''}</span>
                     {share ? (
@@ -1923,6 +2133,27 @@ export function ExpenseForm({
         ) : null}
       </div>
       </fieldset>
+      {deleteTarget ? (
+        <div className="mt-8 border-t border-border pt-5">
+          <ExpenseDeleteControl
+            target={deleteTarget}
+            creatorKnown={edit ? edit.expense.createdBySelf : Boolean(draft)}
+            statusHref={deleteStatusHref}
+            successHref={edit ? deleteStatusHref : deleteSuccessHref}
+            disabled={navigationBusy && !deletePending}
+            onBusyChange={setDeletePending}
+          />
+        </div>
+      ) : null}
+      <ExpenseMutationErrorDialog
+        open={mutationError !== null}
+        title={t('errors.mutationErrorTitle')}
+        message={mutationError ?? ''}
+        dismissLabel={t('errors.mutationErrorDismiss')}
+        closeLabel={t('errors.mutationErrorCloseLabel')}
+        returnFocusRef={mutationReturnFocusRef}
+        onDismiss={() => setMutationError(null)}
+      />
     </form>
   )
 }

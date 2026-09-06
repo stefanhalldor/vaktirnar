@@ -301,6 +301,13 @@ export const DeleteOwnUnsettledExpenseSchema = z.object({
   request_id: requestId,
 }).strict()
 
+export const DeleteOwnExpenseCreationDraftSchema = z.object({
+  draft_id: uuid,
+  expected_draft_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  expected_publication_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
+  request_id: requestId,
+}).strict()
+
 export const LinkExpenseGuestMemberSchema = z.object({
   group_id: uuid,
   member_id: uuid,

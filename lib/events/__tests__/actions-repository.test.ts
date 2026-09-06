@@ -1404,10 +1404,10 @@ describe('owner-safe financial event projections', () => {
       .rejects.toThrow('event_expense_activity_failed')
   })
 
-  it('maps exact Event private, audience and static pre-active rows to local targets', async () => {
+  it('maps SQL175 Event private, author-private, participant-shared and static rows', async () => {
     mockRpc.mockResolvedValueOnce({
       data: {
-        contract_version: 1,
+        contract_version: 2,
         status: 'ready',
         rows: [{
           lifecycle_state: 'private_draft',
@@ -1419,12 +1419,20 @@ describe('owner-safe financial event projections', () => {
           detail_target: { kind: 'private_draft', draft_id: PARTY_A },
         }, {
           lifecycle_state: 'shared_draft',
-          title: 'Deild drög',
+          title: 'Mín deildu drög',
           total_minor: 20_000,
           currency: 'ISK',
           incurred_on: '2026-08-25',
           allocation_state: 'balanced_unconfirmed',
-          detail_target: { kind: 'shared_draft', publication_id: PARTY_B },
+          detail_target: { kind: 'private_draft', draft_id: PARTY_B },
+        }, {
+          lifecycle_state: 'shared_draft',
+          title: 'Deild með mér',
+          total_minor: 15_000,
+          currency: 'ISK',
+          incurred_on: '2026-08-25',
+          allocation_state: 'incomplete',
+          detail_target: { kind: 'shared_draft', publication_id: GUEST_ID },
         }, {
           lifecycle_state: 'shared_draft',
           title: 'Allir á viðburði',
@@ -1451,12 +1459,20 @@ describe('owner-safe financial event projections', () => {
         detailHref: `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${PARTY_A}`,
       }, {
         lifecycleState: 'shared_draft',
-        title: 'Deild drög',
+        title: 'Mín deildu drög',
         totalMinor: 20_000,
         currency: 'ISK',
         incurredOn: '2026-08-25',
         allocationState: 'balanced_unconfirmed',
-        detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${PARTY_B}`,
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${PARTY_B}`,
+      }, {
+        lifecycleState: 'shared_draft',
+        title: 'Deild með mér',
+        totalMinor: 15_000,
+        currency: 'ISK',
+        incurredOn: '2026-08-25',
+        allocationState: 'incomplete',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${GUEST_ID}`,
       }, {
         lifecycleState: 'shared_draft',
         title: 'Allir á viðburði',
@@ -1467,7 +1483,8 @@ describe('owner-safe financial event projections', () => {
         detailHref: null,
       }],
     })
-    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_pre_active_v1', {
+    expect(mockRpc).toHaveBeenCalledOnce()
+    expect(mockRpc).toHaveBeenCalledWith('teskeid_event_get_expense_pre_active_v2', {
       p_actor_id: ACTOR_ID,
       p_event_id: EVENT_ID,
     })
@@ -1488,7 +1505,7 @@ describe('owner-safe financial event projections', () => {
   ])('fails the complete visible Event pre-active payload closed: %s', async (_label, drift) => {
     mockRpc.mockResolvedValueOnce({
       data: {
-        contract_version: 1,
+        contract_version: 2,
         status: 'ready',
         rows: [{
           lifecycle_state: 'shared_draft',
@@ -1518,14 +1535,14 @@ describe('owner-safe financial event projections', () => {
 
   it('requires exact none/unavailable shapes and fails authority/service errors safely', async () => {
     mockRpc.mockResolvedValueOnce({
-      data: { contract_version: 1, status: 'none', rows: [] }, error: null,
+      data: { contract_version: 2, status: 'none', rows: [] }, error: null,
     })
     await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID)).resolves.toEqual({
       contractVersion: 1, status: 'ready', items: [],
     })
 
     mockRpc.mockResolvedValueOnce({
-      data: { contract_version: 1, status: 'unavailable', rows: [] }, error: null,
+      data: { contract_version: 2, status: 'unavailable', rows: [] }, error: null,
     })
     await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID)).resolves.toEqual({
       contractVersion: 1, status: 'unavailable', items: [],
@@ -1545,6 +1562,74 @@ describe('owner-safe financial event projections', () => {
     await expect(getEventExpensePreActiveV1(ACTOR_ID, 'not-an-event')).resolves.toBeNull()
   })
 
+  it.each(['PGRST202', '42883'])(
+    'falls back to Event v1 only for exact missing-v2 diagnostics (%s)',
+    async (code) => {
+      mockRpc
+        .mockResolvedValueOnce({
+          data: null,
+          error: {
+            code,
+            message: 'function public.teskeid_event_get_expense_pre_active_v2 is missing',
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            contract_version: 1,
+            status: 'ready',
+            rows: [{
+              lifecycle_state: 'shared_draft',
+              title: 'Deild drög',
+              total_minor: 20_000,
+              currency: 'ISK',
+              incurred_on: '2026-08-25',
+              allocation_state: 'balanced_unconfirmed',
+              detail_target: { kind: 'shared_draft', publication_id: PARTY_B },
+            }],
+          },
+          error: null,
+        })
+
+      await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID)).resolves.toEqual({
+        contractVersion: 1,
+        status: 'ready',
+        items: [{
+          lifecycleState: 'shared_draft',
+          title: 'Deild drög',
+          totalMinor: 20_000,
+          currency: 'ISK',
+          incurredOn: '2026-08-25',
+          allocationState: 'balanced_unconfirmed',
+          detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${PARTY_B}`,
+        }],
+      })
+      const input = { p_actor_id: ACTOR_ID, p_event_id: EVENT_ID }
+      expect(mockRpc).toHaveBeenNthCalledWith(
+        1, 'teskeid_event_get_expense_pre_active_v2', input,
+      )
+      expect(mockRpc).toHaveBeenNthCalledWith(
+        2, 'teskeid_event_get_expense_pre_active_v1', input,
+      )
+    },
+  )
+
+  it('does not downgrade on a wrong function name or a non-missing SQLSTATE', async () => {
+    for (const error of [{
+        code: 'PGRST202',
+        message: 'function public.some_other_reader is missing',
+      }, {
+        code: '42501',
+        message: 'permission denied for teskeid_event_get_expense_pre_active_v2',
+      }]) {
+      mockRpc.mockResolvedValueOnce({ data: null, error })
+
+      await expect(getEventExpensePreActiveV1(ACTOR_ID, EVENT_ID))
+        .rejects.toThrow('event_expense_pre_active_failed')
+      expect(mockRpc).toHaveBeenCalledTimes(1)
+      mockRpc.mockReset()
+    }
+  })
+
   it('rejects invalid Event pre-active status shapes and the 100-row overflow', async () => {
     const row = (index: number) => ({
       lifecycle_state: 'shared_draft',
@@ -1556,11 +1641,11 @@ describe('owner-safe financial event projections', () => {
       detail_target: null,
     })
     for (const data of [{
-      contract_version: 1, status: 'ready', rows: [],
+      contract_version: 2, status: 'ready', rows: [],
     }, {
-      contract_version: 1, status: 'none', rows: [row(0)],
+      contract_version: 2, status: 'none', rows: [row(0)],
     }, {
-      contract_version: 1,
+      contract_version: 2,
       status: 'ready',
       rows: Array.from({ length: 101 }, (_, index) => row(index)),
     }]) {

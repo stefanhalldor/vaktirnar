@@ -28,6 +28,9 @@ export type ExpenseActionErrorCode =
   | 'not_found'
   | 'conflict'
   | 'event_roster_changed'
+  | 'participant_source_changed'
+  | 'duplicate_participant'
+  | 'author_required'
   | 'feature_disabled'
   | 'recipient_unavailable'
   | 'delivery_failed'
@@ -571,6 +574,19 @@ export type ExpenseDeleteCapabilityView =
   | { status: 'available'; expectedFinancialVersion: number }
   | { status: 'blocked'; reason: 'not_active' | 'open_revision' | 'settlement_history' | 'unsafe_context' }
   | { status: 'hidden' }
+  | { status: 'unavailable' }
+
+export type ExpenseCreationDraftDeleteCapabilityView =
+  | {
+      status: 'ready'
+      subject: 'private_draft' | 'shared_draft'
+      draftId: string
+      contextType: 'one_off' | 'group'
+      groupId: string | null
+      expectedDraftVersion: number
+      expectedPublicationVersion: number | null
+    }
+  | { status: 'not_found' }
   | { status: 'unavailable' }
 
 export interface ExpenseGroupSummaryView {

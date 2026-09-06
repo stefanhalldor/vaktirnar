@@ -23,12 +23,17 @@ vi.mock('next-intl', () => ({
       'expense.cancel': 'Fella útgjald niður',
       'expense.cancelling': 'Felli niður...',
       'expense.cancelConfirm': 'Staðfesta?',
-      'expense.delete': 'Eyða kostnaði varanlega',
-      'expense.deleteDisclosure': 'Þetta er ekki hægt að afturkalla.',
-      'expense.confirmDelete': 'Eyða kostnaði',
-      'expense.deleting': 'Eyði kostnaði...',
-      'expense.keep': 'Halda kostnaði',
-      'expense.deleteBlocked.open_revision': 'Fjarlægðu fyrst opin breytingadrög.',
+      'deleteControl.trigger': 'Eyða kostnaði',
+      'deleteControl.confirm': 'Eyða kostnaði',
+      'deleteControl.deleting': 'Eyði kostnaði...',
+      'deleteControl.keep': 'Halda kostnaði',
+      'deleteControl.close': 'Loka',
+      'deleteControl.closeLabel': 'Loka staðfestingu',
+      'deleteControl.checkStatus': 'Athuga stöðu',
+      'deleteControl.checkingStatus': 'Athuga stöðu...',
+      'deleteControl.subjects.confirmedExpense.title': 'Eyða staðfestum kostnaði?',
+      'deleteControl.subjects.confirmedExpense.description': 'Þetta er ekki hægt að afturkalla.',
+      'deleteControl.blocked.open_revision': 'Hættu fyrst við opnu breytingarnar.',
       'errors.delete_outcome_unknown': 'Ekki tókst að staðfesta hvort kostnaðinum var eytt.',
     }[key] ?? key
   },
@@ -36,6 +41,7 @@ vi.mock('next-intl', () => ({
 
 vi.mock('@/lib/expenses/actions', () => ({
   cancelExpense: mockCancelExpense,
+  deleteOwnExpenseCreationDraft: vi.fn(),
   deleteOwnUnsettledExpense: mockDeleteExpense,
 }))
 
@@ -74,14 +80,15 @@ describe('ExpenseItemActions', () => {
         expenseId="11111111-1111-4111-8111-111111111111"
         canEdit={false}
         canCancel={false}
+        deleteCreatorKnown
         deleteCapability={{ status: 'available', expectedFinancialVersion: 7 }}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði varanlega' }))
-    const dialog = screen.getByRole('alertdialog', { name: 'Eyða kostnaði varanlega' })
+    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
+    const dialog = screen.getByRole('alertdialog', { name: 'Eyða staðfestum kostnaði?' })
     expect(dialog).toHaveTextContent('Þetta er ekki hægt að afturkalla.')
-    expect(screen.getByRole('button', { name: 'Eyða kostnaði' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Halda kostnaði' })).toHaveFocus()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
@@ -96,17 +103,18 @@ describe('ExpenseItemActions', () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
-  it('does not render a destructive control when the server blocks an open revision', () => {
+  it('renders a visible disabled delete control when the server blocks an open revision', () => {
     render(
       <ExpenseItemActions
         expenseId="11111111-1111-4111-8111-111111111111"
         canEdit={false}
         canCancel={false}
+        deleteCreatorKnown
         deleteCapability={{ status: 'blocked', reason: 'open_revision' }}
       />,
     )
-    expect(screen.queryByRole('button', { name: 'Eyða kostnaði varanlega' })).not.toBeInTheDocument()
-    expect(screen.getByText('Fjarlægðu fyrst opin breytingadrög.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Eyða kostnaði' })).toBeDisabled()
+    expect(screen.getByText('Hættu fyrst við opnu breytingarnar.')).toBeInTheDocument()
   })
 
   it('closes the confirmation with Escape and restores focus to the trigger', async () => {
@@ -115,14 +123,15 @@ describe('ExpenseItemActions', () => {
         expenseId="11111111-1111-4111-8111-111111111111"
         canEdit={false}
         canCancel={false}
+        deleteCreatorKnown
         deleteCapability={{ status: 'available', expectedFinancialVersion: 7 }}
       />,
     )
-    const trigger = screen.getByRole('button', { name: 'Eyða kostnaði varanlega' })
+    const trigger = screen.getByRole('button', { name: 'Eyða kostnaði' })
     fireEvent.click(trigger)
     fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' })
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Eyða kostnaði varanlega' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Eyða kostnaði' })).toHaveFocus()
     expect(mockDeleteExpense).not.toHaveBeenCalled()
   })
 
@@ -132,13 +141,14 @@ describe('ExpenseItemActions', () => {
         expenseId="11111111-1111-4111-8111-111111111111"
         canEdit={false}
         canCancel={false}
+        deleteCreatorKnown
         deleteCapability={{ status: 'available', expectedFinancialVersion: 7 }}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði varanlega' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
     fireEvent.click(screen.getByRole('button', { name: 'Halda kostnaði' }))
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Eyða kostnaði varanlega' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Eyða kostnaði' })).toHaveFocus()
     expect(mockDeleteExpense).not.toHaveBeenCalled()
   })
 
@@ -150,11 +160,12 @@ describe('ExpenseItemActions', () => {
         expenseId="11111111-1111-4111-8111-111111111111"
         canEdit={false}
         canCancel
+        deleteCreatorKnown
         deleteCapability={{ status: 'available', expectedFinancialVersion: 7 }}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði varanlega' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
     const confirm = screen.getByRole('button', { name: 'Eyða kostnaði' })
     await act(async () => {
       fireEvent.click(confirm)
@@ -165,7 +176,7 @@ describe('ExpenseItemActions', () => {
     expect(mockDeleteExpense).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: 'Eyði kostnaði...' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Halda kostnaði' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Fella útgjald niður' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Fella útgjald niður', hidden: true })).toBeDisabled()
     fireEvent.keyDown(screen.getByRole('alertdialog'), { key: 'Escape' })
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
 
@@ -177,35 +188,37 @@ describe('ExpenseItemActions', () => {
     expect(screen.getByRole('button', { name: 'Eyði kostnaði...' })).toBeDisabled()
   })
 
-  it('reports an uncertain transport outcome, unlocks, focuses it, and keeps the request id', async () => {
-    mockDeleteExpense
-      .mockRejectedValueOnce(new Error('transport failed'))
-      .mockResolvedValueOnce({ ok: false, error: 'delete_outcome_unknown' })
+  it('can close and reopen an uncertain outcome only to perform safe reconciliation', async () => {
+    mockDeleteExpense.mockRejectedValueOnce(new Error('transport failed'))
     render(
       <ExpenseItemActions
         expenseId="11111111-1111-4111-8111-111111111111"
-        canEdit={false}
-        canCancel={false}
+        canEdit
+        canCancel
+        deleteCreatorKnown
         deleteCapability={{ status: 'available', expectedFinancialVersion: 7 }}
       />,
     )
 
-    async function submit() {
-      fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði varanlega' }))
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
-      })
-    }
-
-    await submit()
+    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
+    })
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Ekki tókst að staðfesta hvort kostnaðinum var eytt.',
     )
-    expect(screen.getByRole('alert')).toHaveFocus()
-    const firstRequestId = mockDeleteExpense.mock.calls[0]![0].request_id
+    expect(screen.queryByRole('button', { name: 'Eyða kostnaði' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Breyta útgjaldinu', hidden: true })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Fella útgjald niður', hidden: true })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Halda kostnaði' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Loka' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
 
-    await submit()
-    expect(mockDeleteExpense.mock.calls[1]![0].request_id).toBe(firstRequestId)
-    expect(mockReplace).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Eyða kostnaði' }))
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Eyða kostnaði' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Athuga stöðu' }))
+    expect(mockDeleteExpense).toHaveBeenCalledTimes(1)
+    expect(mockReplace).toHaveBeenCalledWith('/auth-mvp/utlagt-og-endurgreitt')
   })
 })

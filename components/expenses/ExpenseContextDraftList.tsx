@@ -5,16 +5,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ChevronRight, RefreshCw } from 'lucide-react'
 
+import { formatDateOnly } from '@/lib/date-format'
 import type { ExpenseContextDraftListView } from '@/lib/expenses/unconfirmed-publication'
 import { formatExpenseMinor } from '@/lib/expenses/input-money'
 import { useExpenseTranslations } from './i18n.client'
-
-function formatDraftDate(value: string, locale: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: 'medium',
-    timeZone: 'UTC',
-  }).format(new Date(`${value}T00:00:00.000Z`))
-}
 
 export function ExpenseContextDraftList({
   view,
@@ -61,18 +55,26 @@ export function ExpenseContextDraftList({
       ) : (
         <div className="divide-y divide-border border-y border-border">
           {view.items.map((item, index) => {
+            const amountLabel = item.totalMinor !== null && item.currency !== null
+              ? formatExpenseMinor(item.totalMinor, item.currency, locale)
+              : null
+            const dateLabel = item.incurredOn !== null
+              ? formatDateOnly(item.incurredOn, locale)
+              : null
             const content = (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block break-words text-sm font-semibold">{item.title}</span>
+                  <span className="block break-words text-sm font-semibold">
+                    {item.title ?? t('dashboard.untitledDraft')}
+                  </span>
                   <span className="mt-1 block text-xs text-muted-foreground">
                     {t(`contextDrafts.lifecycle.${item.lifecycleState}`)}
                   </span>
-                  <span className="mt-1 block text-sm">
-                    {formatExpenseMinor(item.totalMinor, item.currency, locale)}
-                    {' · '}
-                    {formatDraftDate(item.incurredOn, locale)}
-                  </span>
+                  {amountLabel !== null || dateLabel !== null ? (
+                    <span className="mt-1 block text-sm">
+                      {[amountLabel, dateLabel].filter((value) => value !== null).join(' · ')}
+                    </span>
+                  ) : null}
                   <span className="mt-1 block text-xs text-muted-foreground">
                     {t(`contextDrafts.allocation.${item.allocationState}`)}
                   </span>
@@ -92,7 +94,7 @@ export function ExpenseContextDraftList({
               </Link>
             ) : (
               <div
-                key={`${item.lifecycleState}-${item.title}-${item.incurredOn}-${index}`}
+                key={`${item.lifecycleState}-${item.title ?? 'untitled'}-${item.incurredOn ?? 'undated'}-${index}`}
                 className="flex min-h-14 items-center gap-3 py-3"
               >
                 {content}

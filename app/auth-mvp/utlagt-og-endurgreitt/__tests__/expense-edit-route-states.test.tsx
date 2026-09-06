@@ -3,8 +3,10 @@ import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  deleteControl: vi.fn(),
   expenseForm: vi.fn(),
   getCanonicalEditDraft: vi.fn(),
+  getDeleteCapability: vi.fn(),
   getDraftPublicationLifecycle: vi.fn(),
   getItemView: vi.fn(),
   getLegacyEditDraftState: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock('@/lib/expenses/participants.server', () => ({
 }))
 vi.mock('@/lib/expenses/repository.server', () => ({
   getCanonicalExpenseEditDraft: mocks.getCanonicalEditDraft,
+  getExpenseDeleteCapability: mocks.getDeleteCapability,
   getExpenseDraftPublicationLifecycle: mocks.getDraftPublicationLifecycle,
   getExpenseItemView: mocks.getItemView,
   getLegacyExpenseEditDraftState: mocks.getLegacyEditDraftState,
@@ -55,6 +58,19 @@ vi.mock('@/components/expenses/ExpenseForm', () => ({
   ExpenseForm: (props: Record<string, unknown>) => {
     mocks.expenseForm(props)
     return <div data-testid="expense-form" />
+  },
+}))
+vi.mock('@/components/expenses/ExpenseDeleteControl', () => ({
+  ExpenseDeleteControl: (props: Record<string, unknown>) => {
+    mocks.deleteControl(props)
+    const target = props.target as { capability?: { status?: string; reason?: string } }
+    return (
+      <div
+        data-testid="expense-delete-control"
+        data-status={target.capability?.status ?? ''}
+        data-reason={target.capability?.reason ?? ''}
+      />
+    )
   },
 }))
 vi.mock('@/components/expenses/LegacyExpenseEditDraftNotice', () => ({
@@ -118,6 +134,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.guardExpenseAccess.mockResolvedValue({ user: { id: ACTOR_ID } })
   mocks.getItemView.mockResolvedValue(itemView())
+  mocks.getDeleteCapability.mockResolvedValue({ status: 'blocked', reason: 'open_revision' })
   mocks.getParticipantOptions.mockResolvedValue([])
   mocks.getPrivateDraft.mockResolvedValue(null)
   mocks.getDraftPublicationLifecycle.mockResolvedValue(null)
@@ -147,6 +164,9 @@ describe('confirmed Expense edit route states', () => {
     render(await renderRoute({ step: 'split', draft: DRAFT_ID }))
 
     expect(screen.getByTestId('legacy-edit-draft-notice')).toHaveAttribute('data-draft-id', DRAFT_ID)
+    expect(screen.getByTestId('expense-delete-control')).toHaveAttribute('data-status', 'blocked')
+    expect(screen.getByTestId('expense-delete-control')).toHaveAttribute('data-reason', 'open_revision')
+    expect(mocks.getDeleteCapability).toHaveBeenCalledWith(ACTOR_ID, EXPENSE_ID)
     expect(mocks.expenseForm).not.toHaveBeenCalled()
     expect(mocks.redirect).not.toHaveBeenCalled()
   })
@@ -177,6 +197,7 @@ describe('confirmed Expense edit route states', () => {
     expect(screen.queryByRole('link', { name: /draft=/ })).not.toBeInTheDocument()
     expect(document.querySelector('a[href*="draft="]')).toBeNull()
     expect(mocks.notFound).not.toHaveBeenCalled()
+    expect(screen.getByTestId('expense-delete-control')).toHaveAttribute('data-status', 'blocked')
   })
 
   it('renders a retryable safe state instead of 404 when edit lookup is unavailable', async () => {
@@ -195,6 +216,7 @@ describe('confirmed Expense edit route states', () => {
     )
     expect(document.querySelector('a[href*="draft="]')).toBeNull()
     expect(mocks.notFound).not.toHaveBeenCalled()
+    expect(screen.getByTestId('expense-delete-control')).toHaveAttribute('data-status', 'blocked')
   })
 
   it('fails an ambiguous state closed even when the request names a valid draft ID', async () => {
@@ -241,7 +263,10 @@ describe('confirmed Expense edit route states', () => {
     expect(mocks.expenseForm).toHaveBeenCalledWith(expect.objectContaining({
       draft,
       initialDraftId: DRAFT_ID,
+      confirmedDeleteCapability: { status: 'blocked', reason: 'open_revision' },
+      deleteStatusHref: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${EXPENSE_ID}`,
     }))
+    expect(mocks.getDeleteCapability).toHaveBeenCalledWith(ACTOR_ID, EXPENSE_ID)
     expect(mocks.redirect).not.toHaveBeenCalled()
   })
 

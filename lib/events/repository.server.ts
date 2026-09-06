@@ -1664,6 +1664,22 @@ const eventExpensePreActiveRowWireSchema = z.discriminatedUnion('lifecycle_state
   }).strict(),
 ])
 
+const eventExpensePreActiveV2RowWireSchema = z.discriminatedUnion('lifecycle_state', [
+  z.object({
+    lifecycle_state: z.literal('private_draft'),
+    ...eventExpensePreActiveBaseWire,
+    detail_target: eventPrivateDraftTargetWireSchema,
+  }).strict(),
+  z.object({
+    lifecycle_state: z.literal('shared_draft'),
+    ...eventExpensePreActiveBaseWire,
+    detail_target: z.union([
+      eventPrivateDraftTargetWireSchema,
+      eventSharedDraftTargetWireSchema,
+    ]).nullable(),
+  }).strict(),
+])
+
 const eventExpensePreActiveWireSchema = z.union([
   z.object({
     contract_version: z.literal(1),
@@ -1677,6 +1693,24 @@ const eventExpensePreActiveWireSchema = z.union([
   }).strict(),
   z.object({
     contract_version: z.literal(1),
+    status: z.literal('unavailable'),
+    rows: z.tuple([]),
+  }).strict(),
+])
+
+const eventExpensePreActiveV2WireSchema = z.union([
+  z.object({
+    contract_version: z.literal(2),
+    status: z.literal('ready'),
+    rows: z.array(eventExpensePreActiveV2RowWireSchema).min(1).max(100),
+  }).strict(),
+  z.object({
+    contract_version: z.literal(2),
+    status: z.literal('none'),
+    rows: z.tuple([]),
+  }).strict(),
+  z.object({
+    contract_version: z.literal(2),
     status: z.literal('unavailable'),
     rows: z.tuple([]),
   }).strict(),
@@ -1710,6 +1744,44 @@ function mapEventExpensePreActiveV1(value: unknown): EventExpensePreActiveV1View
   }
 }
 
+function mapEventExpensePreActiveV2(value: unknown): EventExpensePreActiveV1View {
+  const parsed = eventExpensePreActiveV2WireSchema.safeParse(value)
+  if (!parsed.success) throw new Error('event_expense_pre_active_failed')
+  if (parsed.data.status === 'unavailable') {
+    return { contractVersion: 1, status: 'unavailable', items: [] }
+  }
+  if (parsed.data.status === 'none') {
+    return { contractVersion: 1, status: 'ready', items: [] }
+  }
+  return {
+    contractVersion: 1,
+    status: 'ready',
+    items: parsed.data.rows.map((row) => ({
+      lifecycleState: row.lifecycle_state,
+      title: row.title,
+      totalMinor: row.total_minor,
+      currency: row.currency,
+      incurredOn: row.incurred_on,
+      allocationState: row.allocation_state,
+      detailHref: row.detail_target === null
+        ? null
+        : row.detail_target.kind === 'private_draft'
+          ? `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${encodeURIComponent(row.detail_target.draft_id)}`
+          : `/auth-mvp/utlagt-og-endurgreitt/drog/${encodeURIComponent(row.detail_target.publication_id)}`,
+    })),
+  }
+}
+
+function isMissingEventExpensePreActiveV2(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const code = 'code' in error ? String(error.code) : ''
+  if (code !== 'PGRST202' && code !== '42883') return false
+  const diagnostic = ['message', 'details', 'hint']
+    .flatMap((key) => key in error ? [String(error[key as keyof typeof error])] : [])
+    .join(' ')
+  return diagnostic.includes('teskeid_event_get_expense_pre_active_v2')
+}
+
 export async function getEventExpensePreActiveV1(
   actorUserId: string,
   requestedEventId: string,
@@ -1717,16 +1789,26 @@ export async function getEventExpensePreActiveV1(
   const parsedActorId = eventId.safeParse(actorUserId)
   const parsedEventId = eventId.safeParse(requestedEventId)
   if (!parsedActorId.success || !parsedEventId.success) return null
-  const { data, error } = await getAdmin().rpc('teskeid_event_get_expense_pre_active_v1', {
+  const input = {
     p_actor_id: parsedActorId.data,
     p_event_id: parsedEventId.data,
-  })
-  if (error) {
-    const message = `${error.message ?? ''} ${error.code ?? ''}`.toLowerCase()
+  }
+  const current = await getAdmin().rpc('teskeid_event_get_expense_pre_active_v2', input)
+  if (!current.error) return mapEventExpensePreActiveV2(current.data)
+  if (!isMissingEventExpensePreActiveV2(current.error)) {
+    const message = `${current.error.message ?? ''} ${current.error.code ?? ''}`.toLowerCase()
     if (message.includes('not_found') || message.includes('not_allowed')) return null
     throw new Error('event_expense_pre_active_failed')
   }
-  return mapEventExpensePreActiveV1(data)
+
+  // SQL172 predecessor fallback keeps Event pages usable while SQL175 rolls out.
+  const predecessor = await getAdmin().rpc('teskeid_event_get_expense_pre_active_v1', input)
+  if (predecessor.error) {
+    const message = `${predecessor.error.message ?? ''} ${predecessor.error.code ?? ''}`.toLowerCase()
+    if (message.includes('not_found') || message.includes('not_allowed')) return null
+    throw new Error('event_expense_pre_active_failed')
+  }
+  return mapEventExpensePreActiveV1(predecessor.data)
 }
 
 export async function getExpensePayAllEventLabels(

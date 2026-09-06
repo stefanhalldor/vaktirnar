@@ -112,18 +112,19 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
       relationshipIdentityManagementState = { status: 'unavailable' }
     }
   }
+  const afterDeleteHref = !canUseExpenses
+    ? '/auth-mvp/heim'
+    : canUseEventUi
+      ? eventDetailPath(linkedEventId ?? result.group.id)
+      : result.group.kind === 'group'
+        ? `/auth-mvp/utlagt-og-endurgreitt/hopar/${result.group.id}`
+        : '/auth-mvp/utlagt-og-endurgreitt'
 
   return (
     <ExpenseShell
       title={result.expense.title}
       homeLabel={t('homeLabel')}
-      backHref={!canUseExpenses
-        ? '/auth-mvp/heim'
-        : canUseEventUi
-        ? eventDetailPath(linkedEventId ?? result.group.id)
-        : result.group.kind === 'one_off'
-        ? '/auth-mvp/utlagt-og-endurgreitt'
-        : `/auth-mvp/utlagt-og-endurgreitt/hopar/${result.group.id}`}
+      backHref={afterDeleteHref}
       backLabel={t('back')}
       closedTestingFeature="utlagt-og-endurgreitt"
     >
@@ -142,6 +143,7 @@ export default async function ExpenseItemPage({ params, searchParams }: { params
         relationshipIdentityManagementState={relationshipIdentityManagementState}
         revisionState={result.editRevisionState}
         deleteCapability={result.deleteCapability}
+        deleteSuccessHref={afterDeleteHref}
       />
     </ExpenseShell>
   )

@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
+import { ExpenseDeleteControl } from '@/components/expenses/ExpenseDeleteControl'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { LegacyExpenseEditDraftNotice } from '@/components/expenses/LegacyExpenseEditDraftNotice'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
@@ -9,9 +10,10 @@ import { guardExpenseAccess } from '@/lib/expenses/guard'
 import { expenseDetailHref, parseExpenseDraftId, parseExpenseFlowStep } from '@/lib/expenses/flow'
 import { canEditExpense } from '@/lib/expenses/policy'
 import { getExpenseParticipantOptions } from '@/lib/expenses/participants.server'
-import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
+import type { ExpenseDeleteCapabilityView, ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import {
   getCanonicalExpenseEditDraft,
+  getExpenseDeleteCapability,
   getExpenseDraftPublicationLifecycle,
   getExpenseItemView,
   getLegacyExpenseEditDraftState,
@@ -49,6 +51,32 @@ export default async function EditExpensePage({
   })
   if (!canEdit) notFound()
 
+  const rawConfirmedDeleteCapability: ExpenseDeleteCapabilityView = expense.createdBySelf
+    ? await getExpenseDeleteCapability(user.id, expense.id)
+    : { status: 'hidden' }
+  // This route itself proves that edit state is open or cannot be classified
+  // safely. Never turn that state into a one-click discard-and-delete path.
+  const confirmedDeleteCapability: ExpenseDeleteCapabilityView =
+    rawConfirmedDeleteCapability.status === 'hidden'
+      || rawConfirmedDeleteCapability.status === 'unavailable'
+      ? rawConfirmedDeleteCapability
+      : { status: 'blocked', reason: 'open_revision' }
+  const confirmedDetailHref = expenseDetailHref(expense.id)
+  const editDeleteControl = expense.createdBySelf ? (
+    <div className="mt-6 border-t border-border pt-5">
+      <ExpenseDeleteControl
+        target={{
+          kind: 'confirmed_expense',
+          expenseId: expense.id,
+          capability: confirmedDeleteCapability,
+        }}
+        creatorKnown
+        statusHref={confirmedDetailHref}
+        successHref={confirmedDetailHref}
+      />
+    </div>
+  ) : null
+
   const draftId = parseExpenseDraftId(query.draft)
   const canonical = await getCanonicalExpenseEditDraft(user.id, group.id, expense.id)
   if (canonical.status === 'ambiguous' || canonical.status === 'unavailable') {
@@ -63,36 +91,39 @@ export default async function EditExpensePage({
         backLabel={t('back')}
         closedTestingFeature="utlagt-og-endurgreitt"
       >
-        <section
-          role={unavailable ? 'status' : 'alert'}
-          aria-labelledby="expense-edit-state-heading"
-          className="space-y-4 border-y border-border py-6"
-        >
-          <div className="space-y-2">
-            <h2 id="expense-edit-state-heading" className="text-base font-semibold">
-              {t(unavailable ? 'editState.unavailableHeading' : 'editState.ambiguousHeading')}
-            </h2>
-            <p className="text-sm leading-6 text-muted-foreground">
-              {t(unavailable ? 'editState.unavailableBody' : 'editState.ambiguousBody')}
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            {unavailable ? (
+        <>
+          <section
+            role={unavailable ? 'status' : 'alert'}
+            aria-labelledby="expense-edit-state-heading"
+            className="space-y-4 border-y border-border py-6"
+          >
+            <div className="space-y-2">
+              <h2 id="expense-edit-state-heading" className="text-base font-semibold">
+                {t(unavailable ? 'editState.unavailableHeading' : 'editState.ambiguousHeading')}
+              </h2>
+              <p className="text-sm leading-6 text-muted-foreground">
+                {t(unavailable ? 'editState.unavailableBody' : 'editState.ambiguousBody')}
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              {unavailable ? (
+                <Link
+                  href={retryHref}
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {t('editState.retry')}
+                </Link>
+              ) : null}
               <Link
-                href={retryHref}
-                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                href={detailHref}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
-                {t('editState.retry')}
+                {t('editState.backToExpense')}
               </Link>
-            ) : null}
-            <Link
-              href={detailHref}
-              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              {t('editState.backToExpense')}
-            </Link>
-          </div>
-        </section>
+            </div>
+          </section>
+          {editDeleteControl}
+        </>
       </ExpenseShell>
     )
   }
@@ -110,11 +141,14 @@ export default async function EditExpensePage({
           backLabel={t('back')}
           closedTestingFeature="utlagt-og-endurgreitt"
         >
-          <LegacyExpenseEditDraftNotice
-            expenseId={expense.id}
-            draftId={legacy.draftId}
-            draftVersion={legacy.draftVersion}
-          />
+          <>
+            <LegacyExpenseEditDraftNotice
+              expenseId={expense.id}
+              draftId={legacy.draftId}
+              draftVersion={legacy.draftVersion}
+            />
+            {editDeleteControl}
+          </>
         </ExpenseShell>
       )
     }
@@ -128,17 +162,20 @@ export default async function EditExpensePage({
           backLabel={t('back')}
           closedTestingFeature="utlagt-og-endurgreitt"
         >
-          <section role="status" className="space-y-4 border-y border-border py-6">
-            <p className="text-sm leading-6 text-muted-foreground">
-              {t('editState.unavailableBody')}
-            </p>
-            <Link
-              href={detailHref}
-              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              {t('editState.backToExpense')}
-            </Link>
-          </section>
+          <>
+            <section role="status" className="space-y-4 border-y border-border py-6">
+              <p className="text-sm leading-6 text-muted-foreground">
+                {t('editState.unavailableBody')}
+              </p>
+              <Link
+                href={detailHref}
+                className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                {t('editState.backToExpense')}
+              </Link>
+            </section>
+            {editDeleteControl}
+          </>
         </ExpenseShell>
       )
     }
@@ -187,6 +224,8 @@ export default async function EditExpensePage({
         eventContext={isEventContext}
         draft={safeDraft}
         publicationLifecycle={publicationLifecycle}
+        confirmedDeleteCapability={confirmedDeleteCapability}
+        deleteStatusHref={expenseDetailHref(expense.id)}
         initialDraftId={draftId ?? undefined}
         draftBaseHref={`${expenseDetailHref(expense.id)}/breyta`}
         initialMembers={group.members

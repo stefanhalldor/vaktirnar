@@ -21,6 +21,7 @@ vi.mock('next-intl', () => ({
     'teskeid.expenses.contextDrafts.lifecycle.shared_draft': 'Drög með öðrum',
     'teskeid.expenses.contextDrafts.allocation.incomplete': 'Skiptingin er enn í vinnslu',
     'teskeid.expenses.contextDrafts.allocation.balanced_unconfirmed': 'Skiptingin bíður staðfestingar',
+    'teskeid.expenses.dashboard.untitledDraft': 'Ónefnd færsla',
   }[key] ?? key),
 }))
 
@@ -81,6 +82,54 @@ describe('ExpenseContextDraftList', () => {
     expect(mockRefresh).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: 'Reyni aftur…' })).toBeDisabled()
     expect(screen.getByRole('status')).toHaveTextContent('Reyni aftur…')
+  })
+
+  it.each([
+    ['is', '26. ágúst 2026'],
+    ['en', '26 August 2026'],
+  ])('renders a deterministic date for %s without runtime-locale drift', (locale, expectedDate) => {
+    render(<ExpenseContextDraftList
+      locale={locale}
+      view={{
+        status: 'ready',
+        items: [{
+          lifecycleState: 'private_draft',
+          title: 'Dagsetningarpróf',
+          totalMinor: 10_000,
+          currency: 'ISK',
+          incurredOn: '2026-08-26',
+          allocationState: 'incomplete',
+          detailHref: '/auth-mvp/utlagt-og-endurgreitt/nytt?draft=private-id',
+        }],
+      }}
+    />)
+
+    expect(screen.getByText(new RegExp(expectedDate))).toBeInTheDocument()
+  })
+
+  it('renders a partial creator-owned group draft without inventing amount or date', () => {
+    render(<ExpenseContextDraftList
+      locale="is"
+      view={{
+        status: 'ready',
+        items: [{
+          lifecycleState: 'private_draft',
+          title: null,
+          totalMinor: null,
+          currency: null,
+          incurredOn: null,
+          allocationState: 'incomplete',
+          detailHref: '/auth-mvp/utlagt-og-endurgreitt/hopar/group-id/nytt-utgjald?draft=draft-id',
+        }],
+      }}
+    />)
+
+    expect(screen.getByRole('link', { name: /Ónefnd færsla/ })).toHaveAttribute(
+      'href',
+      '/auth-mvp/utlagt-og-endurgreitt/hopar/group-id/nytt-utgjald?draft=draft-id',
+    )
+    expect(screen.getByText('Skiptingin er enn í vinnslu')).toBeInTheDocument()
+    expect(screen.queryByText(/kr\./)).not.toBeInTheDocument()
   })
 
   it('renders structural absence for a ready-empty source', () => {

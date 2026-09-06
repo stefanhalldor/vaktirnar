@@ -15,9 +15,11 @@ vi.mock('@/lib/events/repository.server', () => ({ getExpensePayAllEventLabels: 
 
 import {
   getCanonicalExpenseEditDraft,
+  getExpenseCreationDraftDeleteCapability,
   getExpenseDashboard,
   getExpenseDraftPublicationLifecycle,
   getExpenseSharedDraftDetail,
+  getExpenseSharedDraftManagementTarget,
   getGroupSharedExpenseDrafts,
   getVisibleSharedExpenseDrafts,
 } from '@/lib/expenses/repository.server'
@@ -136,7 +138,7 @@ beforeEach(() => {
   mockGetAdmin.mockReturnValue({ from: mockFrom, rpc: mockRpc })
 })
 
-describe('SQL159 repository boundaries', () => {
+describe('SQL159/SQL175 repository boundaries', () => {
   it('uses SQL170 as the sole directory projection rather than composing lifecycle rows in the repository', () => {
     const source = readFileSync(join(process.cwd(), 'lib/expenses/repository.server.ts'), 'utf8')
     expect(source).toContain("rpc('expense_list_dashboard_presentations_v1'")
@@ -200,22 +202,22 @@ describe('SQL159 repository boundaries', () => {
     expect(mockRpc).toHaveBeenCalledTimes(2)
   })
 
-  it('loads exact group shared drafts with only the server actor and group target', async () => {
-    mockRpc.mockResolvedValue({
+  it('loads SQL175 group creation drafts with only the server actor and group target', async () => {
+    mockRpc.mockResolvedValueOnce({
       data: {
         contract_version: 1,
         status: 'ready',
         rows: [{
-          lifecycle_state: 'shared_draft',
-          publication_id: PUBLICATION_ID,
-          publication_version: 2,
-          title: 'Kvöldmatur',
-          total_minor: 12_000,
-          currency: 'ISK',
-          incurred_on: '2026-08-26',
-          allocation_state: 'balanced_unconfirmed',
-          viewer_role: 'participant',
-          detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+          lifecycle_state: 'private_draft',
+          draft_id: DRAFT_ID,
+          draft_version: 2,
+          title: null,
+          total_minor: null,
+          currency: null,
+          incurred_on: null,
+          allocation_state: 'incomplete',
+          viewer_role: 'author',
+          detail_target: { kind: 'private_draft', draft_id: DRAFT_ID },
         }],
       },
       error: null,
@@ -224,17 +226,68 @@ describe('SQL159 repository boundaries', () => {
     await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toMatchObject({
       status: 'ready',
       items: [{
-        lifecycleState: 'shared_draft',
-        detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${PUBLICATION_ID}`,
+        lifecycleState: 'private_draft',
+        title: null,
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/hopar/${GROUP_ID}/nytt-utgjald?draft=${DRAFT_ID}`,
       }],
     })
-    expect(mockRpc).toHaveBeenCalledWith('expense_list_group_shared_drafts', {
+    expect(mockRpc).toHaveBeenCalledOnce()
+    expect(mockRpc).toHaveBeenCalledWith('expense_list_group_creation_drafts_v1', {
       p_actor_id: ACTOR_ID,
       p_group_id: GROUP_ID,
     })
   })
 
-  it('fails malformed, transport-failed and invalid group sources closed', async () => {
+  it.each(['PGRST202', '42883'])(
+    'falls back to SQL159 only for an exact missing SQL175 function diagnostic (%s)',
+    async (code) => {
+    mockRpc
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          code,
+          message: 'Could not find public.expense_list_group_creation_drafts_v1',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          contract_version: 1,
+          status: 'ready',
+          rows: [{
+            lifecycle_state: 'shared_draft',
+            publication_id: PUBLICATION_ID,
+            publication_version: 2,
+            title: 'Kvöldmatur',
+            total_minor: 12_000,
+            currency: 'ISK',
+            incurred_on: '2026-08-26',
+            allocation_state: 'balanced_unconfirmed',
+            viewer_role: 'participant',
+            detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+          }],
+        },
+        error: null,
+      })
+
+    await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toMatchObject({
+      status: 'ready',
+      items: [{
+        lifecycleState: 'shared_draft',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/drog/${PUBLICATION_ID}`,
+      }],
+    })
+    expect(mockRpc).toHaveBeenNthCalledWith(1, 'expense_list_group_creation_drafts_v1', {
+      p_actor_id: ACTOR_ID,
+      p_group_id: GROUP_ID,
+    })
+    expect(mockRpc).toHaveBeenNthCalledWith(2, 'expense_list_group_shared_drafts', {
+      p_actor_id: ACTOR_ID,
+      p_group_id: GROUP_ID,
+    })
+    },
+  )
+
+  it('fails malformed, non-missing and invalid group sources closed without fallback', async () => {
     mockRpc.mockResolvedValueOnce({
       data: { contract_version: 1, status: 'ready', rows: [{ private_payload: true }] },
       error: null,
@@ -242,15 +295,241 @@ describe('SQL159 repository boundaries', () => {
     await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toEqual({
       status: 'unavailable', items: [],
     })
+    expect(mockRpc).toHaveBeenCalledTimes(1)
 
+    mockRpc.mockReset()
     mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'transport' } })
     await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toEqual({
       status: 'unavailable', items: [],
     })
+    expect(mockRpc).toHaveBeenCalledTimes(1)
 
+    mockRpc.mockReset()
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find public.some_other_function',
+      },
+    })
+    await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toEqual({
+      status: 'unavailable', items: [],
+    })
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+
+    mockRpc.mockReset()
+    mockRpc.mockResolvedValueOnce({
+      data: null,
+      error: {
+        code: '42501',
+        message: 'permission denied for expense_list_group_creation_drafts_v1',
+      },
+    })
+    await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toEqual({
+      status: 'unavailable', items: [],
+    })
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+
+    mockRpc.mockReset()
     await expect(getGroupSharedExpenseDrafts(ACTOR_ID, 'not-a-uuid')).resolves.toEqual({
       status: 'unavailable', items: [],
     })
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('strictly maps the SQL175 creation-draft delete capability', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        visible: true,
+        allowed: true,
+        subject: 'private_draft',
+        context_type: 'one_off',
+        group_id: null,
+        draft_id: DRAFT_ID,
+        expected_draft_version: 4,
+        expected_publication_version: null,
+      },
+      error: null,
+    })
+
+    await expect(getExpenseCreationDraftDeleteCapability(ACTOR_ID, DRAFT_ID))
+      .resolves.toEqual({
+        status: 'ready',
+        subject: 'private_draft',
+        contextType: 'one_off',
+        groupId: null,
+        draftId: DRAFT_ID,
+        expectedDraftVersion: 4,
+        expectedPublicationVersion: null,
+      })
+    expect(mockRpc).toHaveBeenCalledWith(
+      'expense_get_own_creation_draft_delete_capability_v1',
+      { p_actor_id: ACTOR_ID, p_draft_id: DRAFT_ID },
+    )
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        visible: true,
+        allowed: true,
+        subject: 'shared_draft',
+        context_type: 'group',
+        group_id: GROUP_ID,
+        draft_id: DRAFT_ID,
+        expected_draft_version: 4,
+        expected_publication_version: 2,
+      },
+      error: null,
+    })
+    await expect(getExpenseCreationDraftDeleteCapability(ACTOR_ID, DRAFT_ID))
+      .resolves.toMatchObject({
+        status: 'ready',
+        subject: 'shared_draft',
+        contextType: 'group',
+        groupId: GROUP_ID,
+        expectedPublicationVersion: 2,
+      })
+  })
+
+  it('fails malformed or mismatched creation-draft delete capabilities closed', async () => {
+    const base = {
+      contract_version: 1,
+      status: 'ready',
+      visible: true,
+      allowed: true,
+      subject: 'shared_draft',
+      context_type: 'group',
+      group_id: GROUP_ID,
+      draft_id: DRAFT_ID,
+      expected_draft_version: 4,
+      expected_publication_version: 2,
+    }
+    const missingContextType: Record<string, unknown> = { ...base }
+    delete missingContextType.context_type
+    const missingGroupId: Record<string, unknown> = { ...base }
+    delete missingGroupId.group_id
+    for (const data of [{
+      ...base, expected_publication_version: null,
+    }, {
+      ...base, draft_id: '20000000-0000-4000-8000-000000000002',
+    }, {
+      ...base, private_payload: true,
+    }, {
+      ...base, expected_draft_version: 0,
+    }, {
+      ...base, visible: false,
+    }, {
+      ...base, context_type: 'edit',
+    }, {
+      ...base, context_type: 'one_off',
+    }, {
+      ...base, group_id: null,
+    }, {
+      ...base, group_id: 'not-a-uuid',
+    }, missingContextType, missingGroupId]) {
+      mockRpc.mockResolvedValueOnce({ data, error: null })
+      await expect(getExpenseCreationDraftDeleteCapability(ACTOR_ID, DRAFT_ID))
+        .resolves.toEqual({ status: 'unavailable' })
+    }
+
+    mockRpc.mockResolvedValueOnce({
+      data: { contract_version: 1, status: 'not_found', visible: false },
+      error: null,
+    })
+    await expect(getExpenseCreationDraftDeleteCapability(ACTOR_ID, DRAFT_ID))
+      .resolves.toEqual({ status: 'not_found' })
+
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'transport' } })
+    await expect(getExpenseCreationDraftDeleteCapability(ACTOR_ID, DRAFT_ID))
+      .resolves.toEqual({ status: 'unavailable' })
+
+    mockRpc.mockReset()
+    await expect(getExpenseCreationDraftDeleteCapability(ACTOR_ID, 'not-a-uuid'))
+      .resolves.toEqual({ status: 'unavailable' })
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('maps exact SQL175 shared-draft management targets and binds participant identity', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        viewer_role: 'author',
+        detail_target: { kind: 'private_draft', draft_id: DRAFT_ID },
+      },
+      error: null,
+    })
+    await expect(getExpenseSharedDraftManagementTarget(ACTOR_ID, PUBLICATION_ID))
+      .resolves.toEqual({
+        status: 'ready',
+        viewerRole: 'author',
+        detailTarget: { kind: 'private_draft', draftId: DRAFT_ID },
+      })
+    expect(mockRpc).toHaveBeenCalledWith(
+      'expense_get_shared_draft_management_target_v1',
+      { p_actor_id: ACTOR_ID, p_publication_id: PUBLICATION_ID },
+    )
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        viewer_role: 'participant',
+        detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+      },
+      error: null,
+    })
+    await expect(getExpenseSharedDraftManagementTarget(ACTOR_ID, PUBLICATION_ID))
+      .resolves.toMatchObject({ status: 'ready', viewerRole: 'participant' })
+
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        viewer_role: 'participant',
+        detail_target: {
+          kind: 'shared_draft',
+          publication_id: '30000000-0000-4000-8000-000000000002',
+        },
+      },
+      error: null,
+    })
+    await expect(getExpenseSharedDraftManagementTarget(ACTOR_ID, PUBLICATION_ID))
+      .resolves.toEqual({ status: 'unavailable' })
+  })
+
+  it('fails malformed, unavailable and invalid management targets closed', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        viewer_role: 'author',
+        detail_target: { kind: 'private_draft', draft_id: DRAFT_ID },
+        email: 'private@example.is',
+      },
+      error: null,
+    })
+    await expect(getExpenseSharedDraftManagementTarget(ACTOR_ID, PUBLICATION_ID))
+      .resolves.toEqual({ status: 'unavailable' })
+
+    mockRpc.mockResolvedValueOnce({
+      data: { contract_version: 1, status: 'not_found' },
+      error: null,
+    })
+    await expect(getExpenseSharedDraftManagementTarget(ACTOR_ID, PUBLICATION_ID))
+      .resolves.toEqual({ status: 'not_found' })
+
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'transport' } })
+    await expect(getExpenseSharedDraftManagementTarget(ACTOR_ID, PUBLICATION_ID))
+      .resolves.toEqual({ status: 'unavailable' })
+
+    mockRpc.mockReset()
+    await expect(getExpenseSharedDraftManagementTarget(ACTOR_ID, 'not-a-uuid'))
+      .resolves.toEqual({ status: 'not_found' })
+    expect(mockRpc).not.toHaveBeenCalled()
   })
 
   it('loads shared detail with only the server actor and exact publication target', async () => {

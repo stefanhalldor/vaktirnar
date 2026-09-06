@@ -1,4 +1,6 @@
+import { notFound } from 'next/navigation'
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
+import { ExpenseDraftDeleteOnly } from '@/components/expenses/ExpenseDraftDeleteOnly'
 import { ExpenseShell } from '@/components/expenses/ExpenseShell'
 import { ExpenseEventContextChooser } from '@/components/events/ExpenseEventContextChooser'
 import { getExpenseTranslations } from '@/components/expenses/i18n.server'
@@ -8,6 +10,7 @@ import type { ExpenseParticipantOption } from '@/lib/expenses/contracts'
 import { parseExpenseDraftId } from '@/lib/expenses/flow'
 import { hydrateExpenseDraftEventGuestLabels } from '@/lib/expenses/drafts'
 import {
+  getExpenseCreationDraftDeleteCapability,
   getExpenseDraftPublicationLifecycle,
   getExpensePrivateDraft,
 } from '@/lib/expenses/repository.server'
@@ -17,7 +20,6 @@ import { canUseEventExpenses } from '@/lib/events/guard'
 import {
   adaptLegacyExpenseEventSourceV2,
   listEventExpenseContextsV1,
-  listEventExpenseSources,
 } from '@/lib/events/repository.server'
 import {
   getCurrentExpenseEventSourceV3,
@@ -25,7 +27,7 @@ import {
 } from '@/lib/events/legacy-expense-event-source-v2.repository.server'
 import type { EventExpenseSourceView } from '@/lib/events/contracts'
 import type { LegacyExpenseEventSourceV2 } from '@/lib/events/legacy-expense-event-source-v2.contracts'
-import { eventExpensePath } from '@/lib/events/contracts'
+import { eventDetailPath, eventExpensePath } from '@/lib/events/contracts'
 
 export default async function NewOneOffExpensePage({ searchParams }: {
   searchParams: Promise<{
@@ -36,11 +38,43 @@ export default async function NewOneOffExpensePage({ searchParams }: {
 }) {
   const [{ user }, t, query] = await Promise.all([guardExpenseAccess(), getExpenseTranslations(), searchParams])
   const draftId = parseExpenseDraftId(query.draft)
-  const draft = draftId ? await getExpensePrivateDraft(user.id, draftId) : null
+  const requestedDeleteCapability = draftId
+    ? await getExpenseCreationDraftDeleteCapability(user.id, draftId)
+    : undefined
+  const hasExactOneOffDeleteCapability = requestedDeleteCapability?.status === 'ready'
+    && requestedDeleteCapability.contextType === 'one_off'
+  const draft = draftId
+    ? await getExpensePrivateDraft(user.id, draftId).catch((error: unknown) => {
+        if (hasExactOneOffDeleteCapability) return null
+        throw error
+      })
+    : null
   const safeDraft = draft?.contextType === 'one_off' ? draft : null
+  if (!safeDraft && requestedDeleteCapability?.status === 'ready') {
+    if (requestedDeleteCapability.contextType !== 'one_off') notFound()
+    const dashboardHref = '/auth-mvp/utlagt-og-endurgreitt'
+    return (
+      <ExpenseShell
+        title={t('deleteControl.deleteOnly.pageTitle')}
+        homeLabel={t('homeLabel')}
+        backHref={dashboardHref}
+        backLabel={t('back')}
+        closedTestingFeature="utlagt-og-endurgreitt"
+      >
+        <ExpenseDraftDeleteOnly
+          capability={requestedDeleteCapability}
+          statusHref={dashboardHref}
+          successHref={dashboardHref}
+        />
+      </ExpenseShell>
+    )
+  }
   const publicationLifecycle = safeDraft
     ? await getExpenseDraftPublicationLifecycle(user.id, safeDraft.id)
     : null
+  const creationDraftDeleteCapability = safeDraft
+    ? requestedDeleteCapability
+    : undefined
   const hasExplicitEventQuery = query.event !== undefined
   const requestedEventId = typeof query.event === 'string' ? query.event : null
   const hasStandaloneContext = typeof query.context === 'string'
@@ -72,18 +106,16 @@ export default async function NewOneOffExpensePage({ searchParams }: {
     }
   }
   if (canUseEvents) {
-    if (eventSources === undefined) {
-      try {
-        eventSources = await listEventExpenseSources(user.id)
-      } catch {
-        eventSources = []
-        eventSourcesError = true
-      }
-    }
     try {
       eventSourcePresentation = await listLegacyExpenseEventSourcesV2(user.id)
+      // Selection authority and rendered availability must come from the same
+      // bounded snapshot. Mixing the older V1 picker rows with this V2
+      // presentation can otherwise admit a person from a different roster
+      // revision between the two independent reads.
+      eventSources = eventSourcePresentation.map(adaptLegacyExpenseEventSourceV2)
     } catch {
       eventSourcePresentation = []
+      eventSources = []
       eventSourcesError = true
     }
     const exactEventId = draftEventId ?? (!safeDraft ? requestedEventId : null)
@@ -157,6 +189,10 @@ export default async function NewOneOffExpensePage({ searchParams }: {
       t('expenseForm.eventGuestUnavailableLabel'),
     ),
   } : null
+  const deleteContextHref = safeDraft?.payload.eventId
+    && draftEventSource?.id === safeDraft.payload.eventId
+      ? eventDetailPath(safeDraft.payload.eventId)
+      : '/auth-mvp/utlagt-og-endurgreitt'
 
   const actorName = await getExpenseActorDisplayName(user.id)
   let options: ExpenseParticipantOption[] = []
@@ -177,6 +213,9 @@ export default async function NewOneOffExpensePage({ searchParams }: {
         draft={displayDraft}
         initialDraftId={draftId ?? undefined}
         publicationLifecycle={publicationLifecycle}
+        creationDraftDeleteCapability={creationDraftDeleteCapability}
+        deleteStatusHref={deleteContextHref}
+        deleteSuccessHref={deleteContextHref}
         draftBaseHref={initialEventSource
           ? eventExpensePath(initialEventSource.id)
           : '/auth-mvp/utlagt-og-endurgreitt/nytt'}

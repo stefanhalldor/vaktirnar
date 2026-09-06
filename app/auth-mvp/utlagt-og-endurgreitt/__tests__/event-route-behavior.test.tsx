@@ -5,9 +5,11 @@ import { render, screen } from '@testing-library/react'
 const mocks = vi.hoisted(() => ({
   canUseEventExpenses: vi.fn(),
   checkFeatureAccess: vi.fn(),
+  draftDeleteOnly: vi.fn(),
   expenseContextChooser: vi.fn(),
   expenseForm: vi.fn(),
   getActorName: vi.fn(),
+  getDraftDeleteCapability: vi.fn(),
   getDraft: vi.fn(),
   getPublicationLifecycle: vi.fn(),
   getEventSource: vi.fn(),
@@ -20,9 +22,11 @@ const mocks = vi.hoisted(() => ({
   listEventSourcePresentation: vi.fn(),
   getEventSourcePresentation: vi.fn(),
   adaptEventSourcePresentation: vi.fn(),
+  notFound: vi.fn(() => { throw new Error('NEXT_NOT_FOUND') }),
 }))
 
 vi.mock('server-only', () => ({}))
+vi.mock('next/navigation', () => ({ notFound: mocks.notFound }))
 vi.mock('next-intl/server', () => ({ getLocale: vi.fn().mockResolvedValue('is') }))
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
@@ -46,6 +50,9 @@ vi.mock('@/components/expenses/ExpenseForm', () => ({
     eventSourcesError?: boolean
     eventSelectionWarning?: boolean
     publicationLifecycle?: { status: string; draftId?: string } | null
+    creationDraftDeleteCapability?: { status: string; draftId?: string } | null
+    deleteStatusHref?: string
+    deleteSuccessHref?: string
   }) => {
     mocks.expenseForm(props)
     return (
@@ -58,6 +65,12 @@ vi.mock('@/components/expenses/ExpenseForm', () => ({
         data-warning={String(props.eventSelectionWarning ?? false)}
       />
     )
+  },
+}))
+vi.mock('@/components/expenses/ExpenseDraftDeleteOnly', () => ({
+  ExpenseDraftDeleteOnly: (props: Record<string, unknown>) => {
+    mocks.draftDeleteOnly(props)
+    return <div data-testid="draft-delete-only" />
   },
 }))
 vi.mock('@/components/expenses/ExpensePayAll', () => ({
@@ -74,6 +87,7 @@ vi.mock('@/lib/expenses/participants.server', () => ({
   getExpenseParticipantOptions: mocks.getParticipantOptions,
 }))
 vi.mock('@/lib/expenses/repository.server', () => ({
+  getExpenseCreationDraftDeleteCapability: mocks.getDraftDeleteCapability,
   getExpenseDraftPublicationLifecycle: mocks.getPublicationLifecycle,
   getExpensePrivateDraft: mocks.getDraft,
   getExpensePayAllView: mocks.getPayAll,
@@ -166,6 +180,7 @@ beforeEach(() => {
   mocks.guardExpenseAccess.mockResolvedValue({ user: { id: ACTOR_ID, email: 'owner@example.is' } })
   mocks.canUseEventExpenses.mockResolvedValue(true)
   mocks.getDraft.mockResolvedValue(null)
+  mocks.getDraftDeleteCapability.mockResolvedValue({ status: 'not_found' })
   mocks.getPublicationLifecycle.mockImplementation(async (_actorId: string, draftId: string) => ({
     status: 'ready',
     draftId,
@@ -236,12 +251,13 @@ describe('event-aware new expense route', () => {
 
     expect(screen.getByTestId('expense-form')).toBeInTheDocument()
     expect(screen.queryByTestId('expense-context-chooser')).not.toBeInTheDocument()
-    expect(mocks.listEventSources).toHaveBeenCalledTimes(1)
+    expect(mocks.listEventSources).not.toHaveBeenCalled()
+    expect(mocks.listEventSourcePresentation).toHaveBeenCalledTimes(1)
     expect(mocks.expenseForm.mock.calls.at(-1)?.[0].eventSources).toEqual([sourceA])
   })
 
   it('keeps exact standalone usable when the bounded Event source rejects', async () => {
-    mocks.listEventSources.mockRejectedValueOnce(new Error('bounded load failure'))
+    mocks.listEventSourcePresentation.mockRejectedValueOnce(new Error('bounded load failure'))
 
     render(await NewOneOffExpensePage({
       searchParams: Promise.resolve({ context: 'standalone' }),
@@ -249,7 +265,8 @@ describe('event-aware new expense route', () => {
 
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-event-sources-error', 'true')
     expect(screen.queryByTestId('expense-context-chooser')).not.toBeInTheDocument()
-    expect(mocks.listEventSources).toHaveBeenCalledTimes(1)
+    expect(mocks.listEventSources).not.toHaveBeenCalled()
+    expect(mocks.listEventSourcePresentation).toHaveBeenCalledTimes(1)
   })
 
   it.each([
@@ -278,7 +295,7 @@ describe('event-aware new expense route', () => {
 
   it('falls through to the usable form without retrying when the fresh Event source rejects', async () => {
     mocks.listEventContexts.mockResolvedValueOnce({ status: 'unavailable', events: [] })
-    mocks.listEventSources.mockRejectedValueOnce(new Error('bounded load failure'))
+    mocks.listEventSourcePresentation.mockRejectedValueOnce(new Error('bounded load failure'))
 
     render(await NewOneOffExpensePage({
       searchParams: Promise.resolve({}),
@@ -286,13 +303,14 @@ describe('event-aware new expense route', () => {
 
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-event-sources-error', 'true')
     expect(screen.queryByTestId('expense-context-chooser')).not.toBeInTheDocument()
-    expect(mocks.listEventSources).toHaveBeenCalledTimes(1)
+    expect(mocks.listEventSources).not.toHaveBeenCalled()
+    expect(mocks.listEventSourcePresentation).toHaveBeenCalledTimes(1)
     expect(mocks.expenseForm.mock.calls.at(-1)?.[0].eventSources).toEqual([])
   })
 
   it('skips an empty chooser and reuses the one bounded read for the form', async () => {
     mocks.listEventContexts.mockResolvedValueOnce({ status: 'none', events: [] })
-    mocks.listEventSources.mockResolvedValueOnce([])
+    mocks.listEventSourcePresentation.mockResolvedValueOnce([])
 
     render(await NewOneOffExpensePage({
       searchParams: Promise.resolve({}),
@@ -301,7 +319,8 @@ describe('event-aware new expense route', () => {
     expect(screen.getByTestId('expense-form')).toBeInTheDocument()
     expect(screen.queryByTestId('expense-context-chooser')).not.toBeInTheDocument()
     expect(mocks.listEventContexts).toHaveBeenCalledTimes(1)
-    expect(mocks.listEventSources).toHaveBeenCalledTimes(1)
+    expect(mocks.listEventSources).not.toHaveBeenCalled()
+    expect(mocks.listEventSourcePresentation).toHaveBeenCalledTimes(1)
   })
 
   it('preselects an exact authorized Event and keeps an invalid query standalone', async () => {
@@ -326,7 +345,6 @@ describe('event-aware new expense route', () => {
       viewerRole: 'attendee' as const,
     }
     const attendeeSource = { ...sourceA, viewerRole: 'attendee' as const }
-    mocks.listEventSources.mockResolvedValueOnce([])
     mocks.listEventSourcePresentation.mockResolvedValueOnce([])
     mocks.getEventSourcePresentation.mockResolvedValueOnce(attendeePresentation)
     mocks.adaptEventSourcePresentation.mockReturnValueOnce(attendeeSource)
@@ -345,7 +363,6 @@ describe('event-aware new expense route', () => {
   })
 
   it('exact-fetches and merges an owned event outside the bounded recent directory', async () => {
-    mocks.listEventSources.mockResolvedValueOnce([])
     mocks.listEventSourcePresentation.mockResolvedValueOnce([])
     mocks.getEventSourcePresentation.mockResolvedValueOnce(sourceAPresentation)
     render(await NewOneOffExpensePage({
@@ -358,7 +375,6 @@ describe('event-aware new expense route', () => {
   })
 
   it('keeps explicit Event entry usable when the bounded list rejects and exact authority resolves', async () => {
-    mocks.listEventSources.mockRejectedValueOnce(new Error('bounded load failure'))
     mocks.listEventSourcePresentation.mockResolvedValueOnce([])
     mocks.getEventSourcePresentation.mockResolvedValueOnce(sourceAPresentation)
 
@@ -374,6 +390,15 @@ describe('event-aware new expense route', () => {
 
   it('lets the saved draft beat a conflicting query and hydrates only an authorized current label', async () => {
     mocks.getDraft.mockResolvedValueOnce(draftWithLeakyLegacyLabel())
+    mocks.getDraftDeleteCapability.mockResolvedValueOnce({
+      status: 'ready',
+      subject: 'private_draft',
+      draftId: '50000000-0000-4000-8000-000000000001',
+      contextType: 'one_off',
+      groupId: null,
+      expectedDraftVersion: 1,
+      expectedPublicationVersion: null,
+    })
     render(await NewOneOffExpensePage({
       searchParams: Promise.resolve({ draft: '50000000-0000-4000-8000-000000000001', event: EVENT_B }),
     }))
@@ -389,11 +414,48 @@ describe('event-aware new expense route', () => {
     expect(mocks.expenseForm.mock.calls.at(-1)?.[0].publicationLifecycle).toEqual(
       expect.objectContaining({ status: 'ready', sharingState: 'never_shared' }),
     )
+    expect(mocks.getDraftDeleteCapability).toHaveBeenCalledWith(
+      ACTOR_ID,
+      '50000000-0000-4000-8000-000000000001',
+    )
+    expect(mocks.expenseForm.mock.calls.at(-1)?.[0].creationDraftDeleteCapability).toEqual(
+      expect.objectContaining({ status: 'ready', subject: 'private_draft' }),
+    )
+    expect(mocks.expenseForm.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      deleteStatusHref: `/auth-mvp/vidburdir/${EVENT_A}`,
+      deleteSuccessHref: `/auth-mvp/vidburdir/${EVENT_A}`,
+    }))
+  })
+
+  it('renders only creator deletion when an owned one-off draft payload is no longer readable', async () => {
+    const draftId = '50000000-0000-4000-8000-000000000001'
+    mocks.getDraft.mockRejectedValueOnce(new Error('context no longer readable'))
+    mocks.getDraftDeleteCapability.mockResolvedValueOnce({
+      status: 'ready',
+      subject: 'shared_draft',
+      draftId,
+      contextType: 'one_off',
+      groupId: null,
+      expectedDraftVersion: 2,
+      expectedPublicationVersion: 4,
+    })
+
+    render(await NewOneOffExpensePage({
+      searchParams: Promise.resolve({ draft: draftId }),
+    }))
+
+    expect(screen.getByTestId('draft-delete-only')).toBeInTheDocument()
+    expect(screen.queryByTestId('expense-form')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('expense-context-chooser')).not.toBeInTheDocument()
+    expect(mocks.draftDeleteOnly).toHaveBeenCalledWith(expect.objectContaining({
+      capability: expect.objectContaining({ draftId, contextType: 'one_off' }),
+      successHref: '/auth-mvp/utlagt-og-endurgreitt',
+    }))
+    expect(mocks.listEventContexts).not.toHaveBeenCalled()
   })
 
   it('keeps draft resume usable when the bounded list rejects and exact authority resolves', async () => {
     mocks.getDraft.mockResolvedValueOnce(draftWithLeakyLegacyLabel())
-    mocks.listEventSources.mockRejectedValueOnce(new Error('bounded load failure'))
     mocks.listEventSourcePresentation.mockResolvedValueOnce([])
     mocks.getEventSourcePresentation.mockResolvedValueOnce(sourceAPresentation)
 
@@ -418,6 +480,10 @@ describe('event-aware new expense route', () => {
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-draft-guest', 'Gestur úr viðburði')
     expect(document.body.textContent).not.toContain('secret@example.com')
     expect(document.body.textContent).not.toContain('Sumarferð')
+    expect(mocks.expenseForm.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      deleteStatusHref: '/auth-mvp/utlagt-og-endurgreitt',
+      deleteSuccessHref: '/auth-mvp/utlagt-og-endurgreitt',
+    }))
   })
 
   it('fails closed on a missing v2 label projection instead of restoring a legacy email label', async () => {
@@ -434,6 +500,10 @@ describe('event-aware new expense route', () => {
     expect(screen.getByTestId('expense-form')).toHaveAttribute('data-draft-guest', 'Gestur úr viðburði')
     expect(document.body.textContent).not.toContain('secret@example.com')
     expect(mocks.expenseForm.mock.calls.at(-1)?.[0].eventSourcesError).toBe(true)
+    expect(mocks.expenseForm.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      deleteStatusHref: '/auth-mvp/utlagt-og-endurgreitt',
+      deleteSuccessHref: '/auth-mvp/utlagt-og-endurgreitt',
+    }))
   })
 })
 
