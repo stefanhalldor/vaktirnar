@@ -196,7 +196,10 @@ BEGIN
        OR observed.proretset
        OR observed.provolatile <> observed.volatility
        OR observed.prosecdef <> observed.security_definer
-       OR observed.proisstrict
+       OR observed.proisstrict <> (
+         observed.signature =
+           'public.expense_identity_request_id(text,uuid)'
+       )
        OR observed.proleakproof
        OR observed.proparallel <> 'u'::"char"
        OR observed.pronargdefaults <> 0
@@ -323,7 +326,9 @@ BEGIN
        OR NOT observed.convalidated
        OR observed.condeferrable
        OR observed.condeferred
-       OR observed.connoinherit
+       OR observed.connoinherit <> (
+         observed.constraint_type IN ('p', 'u', 'f')
+       )
        OR observed.actual_definition_hash <> observed.definition_hash
   ) OR (
     SELECT pg_catalog.count(*)

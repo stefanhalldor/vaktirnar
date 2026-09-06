@@ -495,6 +495,32 @@ describe('SQL175 unified creator creation-draft deletion', () => {
     }
   })
 
+  it('matches canonical predecessor strictness and constraint inheritance metadata', () => {
+    for (const [name, source] of [
+      ['migration', migration],
+      ['rehearsal', rehearsal],
+    ] as const) {
+      expect(source, name).toContain(
+        "observed.proisstrict <> (\n         observed.signature =\n           'public.expense_identity_request_id(text,uuid)'\n       )",
+      )
+      expect(source, name).toContain(
+        "observed.connoinherit <> (\n         observed.constraint_type IN ('p', 'u', 'f')\n       )",
+      )
+    }
+
+    for (const [name, source] of [
+      ['preflight', preflight],
+      ['postflight', postflight],
+    ] as const) {
+      expect(source, name).toContain(
+        "observed.proisstrict = (\n            observed.signature =\n              'public.expense_identity_request_id(text,uuid)'\n          )",
+      )
+      expect(source, name).toContain(
+        "observed.connoinherit = (\n            observed.constraint_type IN ('p', 'u', 'f')\n          )",
+      )
+    }
+  })
+
   it('fails closed when any nullable catalog field participates in exactness', () => {
     for (const [name, source] of [
       ['preflight', preflight],

@@ -189,7 +189,10 @@ WITH roles AS MATERIALIZED (
             observed.signature <>
               'public.expense_sql159_amount_minor(text,text,boolean)'
           )
-          AND NOT observed.proisstrict
+          AND observed.proisstrict = (
+            observed.signature =
+              'public.expense_identity_request_id(text,uuid)'
+          )
           AND NOT observed.proleakproof
           AND observed.proparallel = 'u'::"char"
           AND observed.pronargdefaults = 0
@@ -337,7 +340,9 @@ WITH roles AS MATERIALIZED (
           AND observed.convalidated
           AND NOT observed.condeferrable
           AND NOT observed.condeferred
-          AND NOT observed.connoinherit
+          AND observed.connoinherit = (
+            observed.constraint_type IN ('p', 'u', 'f')
+          )
           AND observed.actual_definition_hash = observed.definition_hash
       ), false)), false)
       AND (
