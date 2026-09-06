@@ -351,6 +351,20 @@ describe('SQL175 unified creator creation-draft deletion', () => {
     expect(rehearsal).toContain('rehearsal_pass')
   })
 
+  it('parenthesizes CASE inside the PL/pgSQL target-source IF condition', () => {
+    const parenthesizedCase =
+      /\) IS DISTINCT FROM \(\s*CASE v_name[\s\S]*?\sEND\s*\) THEN/
+    const unparenthesizedCase = /\) IS DISTINCT FROM CASE v_name/
+
+    for (const [name, source] of [
+      ['migration', migration],
+      ['rehearsal', rehearsal],
+    ] as const) {
+      expect(source, name).toMatch(parenthesizedCase)
+      expect(source, name).not.toMatch(unparenthesizedCase)
+    }
+  })
+
   it('uses catalog-only exact preflight/postflight and ships no recovery', () => {
     for (const source of [preflight, postflight]) {
       expect(source).toContain('predecessor_contracts_exact')

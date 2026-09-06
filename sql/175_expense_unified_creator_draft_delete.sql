@@ -548,22 +548,24 @@ BEGIN
       ))
       FROM pg_catalog.pg_proc AS routine
       WHERE routine.oid = v_existing
-    ) IS DISTINCT FROM CASE v_name
-      WHEN 'expense_sql175_private_group_summary'
-        THEN '0f6cac7b817e25d7f61ebf8a923e69d2'
-      WHEN 'expense_sql175_begin_event_delete_request'
-        THEN 'ea3732c799f6737cb9dbbe7aebc02a36'
-      WHEN 'expense_get_own_creation_draft_delete_capability_v1'
-        THEN '26b15255fc401c05eb7808917698fe30'
-      WHEN 'expense_delete_own_creation_draft_v1'
-        THEN '4ba7b3a6be41204ec3807c63e37bdeb4'
-      WHEN 'expense_list_group_creation_drafts_v1'
-        THEN '578aecf4b838c85b9d70ad4748ea4f6e'
-      WHEN 'teskeid_event_get_expense_pre_active_v2'
-        THEN '65270072a4d257dcdb650cf1715b324f'
-      WHEN 'expense_get_shared_draft_management_target_v1'
-        THEN '6c5bc595cf9610550dfdd6b1741870c2'
-    END THEN
+    ) IS DISTINCT FROM (
+      CASE v_name
+        WHEN 'expense_sql175_private_group_summary'
+          THEN '0f6cac7b817e25d7f61ebf8a923e69d2'
+        WHEN 'expense_sql175_begin_event_delete_request'
+          THEN 'ea3732c799f6737cb9dbbe7aebc02a36'
+        WHEN 'expense_get_own_creation_draft_delete_capability_v1'
+          THEN '26b15255fc401c05eb7808917698fe30'
+        WHEN 'expense_delete_own_creation_draft_v1'
+          THEN '4ba7b3a6be41204ec3807c63e37bdeb4'
+        WHEN 'expense_list_group_creation_drafts_v1'
+          THEN '578aecf4b838c85b9d70ad4748ea4f6e'
+        WHEN 'teskeid_event_get_expense_pre_active_v2'
+          THEN '65270072a4d257dcdb650cf1715b324f'
+        WHEN 'expense_get_shared_draft_management_target_v1'
+          THEN '6c5bc595cf9610550dfdd6b1741870c2'
+      END
+    ) THEN
       RAISE EXCEPTION 'expense_sql175_target_source_drift:%', v_name;
     END IF;
   END LOOP;
