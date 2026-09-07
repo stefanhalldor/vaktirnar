@@ -108,13 +108,10 @@ BEGIN
       v_original_acl, pg_catalog.acldefault('f', v_original_owner)
     )) AS privilege_row;
 
-    SELECT pg_catalog.count(*) = 2
+    SELECT pg_catalog.count(*) = 1
         AND pg_catalog.count(*) FILTER (
           WHERE dependency.refclassid = 'pg_catalog.pg_namespace'::pg_catalog.regclass
             AND dependency.refobjid = pg_catalog.to_regnamespace('public')) = 1
-        AND pg_catalog.count(*) FILTER (
-          WHERE dependency.refclassid = 'pg_catalog.pg_language'::pg_catalog.regclass
-            AND dependency.refobjid = routine.prolang) = 1
         AND COALESCE(pg_catalog.bool_and(
           dependency.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
             AND dependency.objid = v_function_oid
@@ -123,9 +120,7 @@ BEGIN
         ), false)
     INTO v_dependencies_exact
     FROM pg_catalog.pg_depend AS dependency
-    CROSS JOIN pg_catalog.pg_proc AS routine
-    WHERE routine.oid = v_function_oid
-      AND dependency.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
+    WHERE dependency.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
       AND dependency.objid = v_function_oid;
 
     v_old_count := (pg_catalog.char_length(v_source)

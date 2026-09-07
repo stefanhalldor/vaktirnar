@@ -19,6 +19,13 @@ Installation is application-data-nondestructive. It changes one function body
 and does not call the delete RPC or insert, update, delete, redact or rewrite an
 Expense, draft, receipt or any other application row.
 
+The target is a string-body `LANGUAGE sql` function. Production catalog
+diagnostics confirmed its exact dependency shape is one normal dependency on
+the `public` namespace, with no `pg_language` dependency and no other row.
+PostgreSQL omits dependency rows to pinned built-in objects, including the
+built-in SQL language. Migration, preflight, rehearsal and postflight therefore
+all require that exact one-row namespace shape.
+
 ## SQL175 lineage
 
 SQL175 is already installed and its seven target functions remain byte-exact.

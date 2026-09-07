@@ -206,6 +206,21 @@ describe('SQL176 finalization receipt classifier correction', () => {
     expect(postflight).toContain('AS postconditions_ok')
     expect(readme).toContain('historical migration/validation artifacts')
     expect(readme).toContain('must not be edited')
+    const oneNamespaceDependency =
+      /SELECT pg_catalog\.count\(\*\) = 1\s+AND pg_catalog\.count\(\*\) FILTER \(\s+WHERE dependency\.refclassid =\s*'pg_catalog\.pg_namespace'::pg_catalog\.regclass\s+AND dependency\.refobjid =\s*pg_catalog\.to_regnamespace\('public'\)\) = 1/g
+    for (const [source, expectedCount] of [
+      [migration, 1],
+      [preflight, 1],
+      [rehearsal, 2],
+      [postflight, 1],
+    ] as const) {
+      expect(source.match(oneNamespaceDependency)?.length ?? 0).toBe(expectedCount)
+      expect(source).not.toMatch(
+        /dependency\.refclassid =\s*'pg_catalog\.pg_language'/,
+      )
+    }
+    expect(readme).toContain('pinned built-in objects')
+    expect(readme).toContain('exact one-row namespace shape')
     expect(readme).toContain('## Localhost checks for Stebbi')
   })
 })

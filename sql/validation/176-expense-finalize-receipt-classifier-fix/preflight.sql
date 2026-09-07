@@ -58,13 +58,10 @@ WITH target AS MATERIALIZED (
   ), false) AS acl_exact
 ), dependency_state AS MATERIALIZED (
   SELECT COALESCE((
-    SELECT pg_catalog.count(*) = 2
+    SELECT pg_catalog.count(*) = 1
       AND pg_catalog.count(*) FILTER (
         WHERE dependency.refclassid = 'pg_catalog.pg_namespace'::pg_catalog.regclass
           AND dependency.refobjid = pg_catalog.to_regnamespace('public')) = 1
-      AND pg_catalog.count(*) FILTER (
-        WHERE dependency.refclassid = 'pg_catalog.pg_language'::pg_catalog.regclass
-          AND dependency.refobjid = target.prolang) = 1
       AND COALESCE(pg_catalog.bool_and(
         dependency.objsubid = 0 AND dependency.refobjsubid = 0
         AND dependency.deptype = 'n'::"char"), false)
@@ -72,7 +69,6 @@ WITH target AS MATERIALIZED (
     JOIN pg_catalog.pg_depend AS dependency
       ON dependency.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
      AND dependency.objid = target.oid
-    GROUP BY target.prolang
   ), false) AS dependencies_exact
 ), preserved AS MATERIALIZED (
   SELECT pg_catalog.count(routine.oid) = 11

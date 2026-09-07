@@ -51,7 +51,24 @@ BEGIN
     AND routine.provolatile = 'i'::"char" AND routine.prosecdef
     AND NOT routine.proisstrict AND NOT routine.proleakproof
     AND routine.proparallel = 'u'::"char"
-    AND routine.proconfig = ARRAY['search_path=""']::text[];
+    AND routine.proconfig = ARRAY['search_path=""']::text[]
+    AND (
+      SELECT pg_catalog.count(*) = 1
+        AND pg_catalog.count(*) FILTER (
+          WHERE dependency.refclassid =
+              'pg_catalog.pg_namespace'::pg_catalog.regclass
+            AND dependency.refobjid =
+              pg_catalog.to_regnamespace('public')) = 1
+        AND COALESCE(pg_catalog.bool_and(
+          dependency.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
+            AND dependency.objid = routine.oid
+            AND dependency.objsubid = 0
+            AND dependency.refobjsubid = 0
+            AND dependency.deptype = 'n'::"char"), false)
+      FROM pg_catalog.pg_depend AS dependency
+      WHERE dependency.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
+        AND dependency.objid = routine.oid
+    );
   IF v_source IS NULL THEN
     RAISE EXCEPTION 'expense_sql176_rehearsal_predecessor_drift';
   END IF;
@@ -84,6 +101,23 @@ BEGIN
         IS NOT DISTINCT FROM v_original_comment
       AND pg_catalog.md5(pg_catalog.replace(routine.prosrc, E'\r\n', E'\n'))
         = '9399515ec95dac55b2388a2a77be08e7'
+      AND (
+        SELECT pg_catalog.count(*) = 1
+          AND pg_catalog.count(*) FILTER (
+            WHERE dependency.refclassid =
+                'pg_catalog.pg_namespace'::pg_catalog.regclass
+              AND dependency.refobjid =
+                pg_catalog.to_regnamespace('public')) = 1
+          AND COALESCE(pg_catalog.bool_and(
+            dependency.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
+              AND dependency.objid = routine.oid
+              AND dependency.objsubid = 0
+              AND dependency.refobjsubid = 0
+              AND dependency.deptype = 'n'::"char"), false)
+        FROM pg_catalog.pg_depend AS dependency
+        WHERE dependency.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
+          AND dependency.objid = routine.oid
+      )
   ) THEN
     RAISE EXCEPTION 'expense_sql176_rehearsal_catalog_mismatch';
   END IF;
