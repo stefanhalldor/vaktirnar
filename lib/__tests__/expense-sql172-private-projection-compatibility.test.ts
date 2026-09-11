@@ -177,6 +177,12 @@ function md5(source: string): string {
   return createHash('md5').update(source, 'utf8').digest('hex')
 }
 
+
+// Only newline representation is ignored; every other UTF-8 byte remains protected.
+function canonicalPredecessorSha256(source: string | Buffer): string {
+  return createHash('sha256').update(source.toString().replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
+}
+
 function sha256(source: string): string {
   return createHash('sha256').update(source, 'utf8').digest('hex')
 }
@@ -422,11 +428,27 @@ const sql172Target = patchTarget(sql171Prosrc, migration)
 const sql172Adapter = dollarBody(migration, 'sql172_adapter_source')
 
 describe('SQL172 private projection compatibility', () => {
+
+  // Canonical LF content is pinned to exact Git base bytes, not checkout formatting.
+  it.each([
+    [raw(sql159Path), '0b96941e54570c74ca035b42067d705c121399263f6676a92f7ee84f812dfa38'],
+    [sql170Raw, '0b8cbaf747e5aba269122cdfde6180443d387cf22c940e85902e2ca7af3004bf'],
+    [raw(sql171Path), 'a471c0f0211107ac292ddd84bbf91c8db90bb4e7304e6cdb1fef3bb05d3a3b66'],
+    [v246LineageRaw, '517f22ddb7c7fd311e97c575620ff84f5e4a18d9f4c2a3b4c312e49aca20c415'],
+  ])('preserves canonical predecessor identity across line endings and rejects edits', (input, expected) => {
+    const lf = input.toString().replace(/\r\n?/g, '\n')
+    for (const source of [lf, lf.replace(/\n/g, '\r\n'), lf.replace(/\n/g, '\r')]) {
+      expect(canonicalPredecessorSha256(source)).toBe(expected)
+      expect(canonicalPredecessorSha256('X' + source.slice(1))).not.toBe(expected)
+      expect(canonicalPredecessorSha256(source.slice(1))).not.toBe(expected)
+      expect(canonicalPredecessorSha256(source + 'X')).not.toBe(expected)
+    }
+  })
   it('freezes SQL159/170/171 and derives the exact predecessor and SQL172 identities', () => {
-    expect(sha256(raw(sql159Path))).toBe(expectedSql159Sha256)
-    expect(sha256(sql170Raw)).toBe(expectedSql170Sha256)
-    expect(sha256(raw(sql171Path))).toBe(expectedSql171Sha256)
-    expect(sha256(v246LineageRaw)).toBe(expectedV246LineageSha256)
+    expect(canonicalPredecessorSha256(raw(sql159Path))).toBe(expectedSql159Sha256)
+    expect(canonicalPredecessorSha256(sql170Raw)).toBe(expectedSql170Sha256)
+    expect(canonicalPredecessorSha256(raw(sql171Path))).toBe(expectedSql171Sha256)
+    expect(canonicalPredecessorSha256(v246LineageRaw)).toBe(expectedV246LineageSha256)
 
     expect(md5(sql170Prosrc.slice(1, -1))).toBe(expectedSql170InnerBodyMd5)
     expect(md5(sql170Prosrc)).toBe(expectedSql170InstalledSourceMd5)

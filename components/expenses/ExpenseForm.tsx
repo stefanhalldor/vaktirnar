@@ -1846,6 +1846,13 @@ export function ExpenseForm({
       <fieldset className="space-y-3 border-y border-border py-5">
         <legend id="expense-split-heading" tabIndex={-1} className="text-sm font-semibold">{t('expenseForm.participants')}</legend>
         {mode === 'one_off' ? <p className="text-xs leading-5 text-muted-foreground">{t('expenseForm.participantHint')}</p> : null}
+        {edit && (edit.hasReportedRepayment || edit.hasConfirmedRepayment) ? (
+          <p className="rounded-xl bg-muted/60 p-3 text-xs leading-5 text-muted-foreground">
+            {t(mode === 'one_off'
+              ? 'expenseForm.editPaymentContextOneOff'
+              : 'expenseForm.editPaymentContextGroup')}
+          </p>
+        ) : null}
         {eventContext && members.some((member) => !member.isSelf) ? (
           <button
             type="button"

@@ -238,6 +238,40 @@ describe('SQL159/SQL175 repository boundaries', () => {
     })
   })
 
+  it('keeps an edit draft on the exact confirmed Expense editor route', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: {
+        contract_version: 1,
+        status: 'ready',
+        rows: [{
+          lifecycle_state: 'private_draft',
+          draft_id: DRAFT_ID,
+          draft_version: 2,
+          title: 'Breytt gisting',
+          total_minor: 12_000,
+          currency: 'ISK',
+          incurred_on: '2026-08-26',
+          allocation_state: 'incomplete',
+          viewer_role: 'author',
+          detail_target: {
+            kind: 'edit_draft',
+            expense_id: EXPENSE_ID,
+            draft_id: DRAFT_ID,
+          },
+        }],
+      },
+      error: null,
+    })
+
+    await expect(getGroupSharedExpenseDrafts(ACTOR_ID, GROUP_ID)).resolves.toMatchObject({
+      status: 'ready',
+      items: [{
+        lifecycleState: 'private_draft',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${EXPENSE_ID}/breyta?step=split&draft=${DRAFT_ID}`,
+      }],
+    })
+  })
+
   it.each(['PGRST202', '42883'])(
     'falls back to SQL159 only for an exact missing SQL175 function diagnostic (%s)',
     async (code) => {

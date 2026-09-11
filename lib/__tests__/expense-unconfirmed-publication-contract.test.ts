@@ -622,6 +622,32 @@ describe('SQL175 group creation-draft projection contract', () => {
     }
   }
 
+  function privateEditRow(overrides: Record<string, unknown> = {}) {
+    return privateRow({
+      title: 'Breytt rúta',
+      total_minor: 25_000,
+      currency: 'ISK',
+      incurred_on: '2026-08-26',
+      detail_target: {
+        kind: 'edit_draft',
+        expense_id: EXPENSE_ID,
+        draft_id: DRAFT_ID,
+      },
+      ...overrides,
+    })
+  }
+
+  function authorSharedEditRow(overrides: Record<string, unknown> = {}) {
+    return authorSharedRow({
+      detail_target: {
+        kind: 'edit_draft',
+        expense_id: EXPENSE_ID,
+        draft_id: SECOND_DRAFT_ID,
+      },
+      ...overrides,
+    })
+  }
+
   it('maps nullable private, author-private and participant-shared rows to exact routes', () => {
     expect(parseGroupCreationExpenseDrafts({
       contract_version: 1,
@@ -657,12 +683,44 @@ describe('SQL175 group creation-draft projection contract', () => {
     })
   })
 
+  it('routes private and shared edit drafts back to their authoritative editor', () => {
+    expect(parseGroupCreationExpenseDrafts({
+      contract_version: 1,
+      status: 'ready',
+      rows: [privateEditRow(), authorSharedEditRow()],
+    }, GROUP_ID)).toEqual({
+      status: 'ready',
+      items: [{
+        lifecycleState: 'private_draft',
+        title: 'Breytt rúta',
+        totalMinor: 25_000,
+        currency: 'ISK',
+        incurredOn: '2026-08-26',
+        allocationState: 'incomplete',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${EXPENSE_ID}/breyta?step=split&draft=${DRAFT_ID}`,
+      }, {
+        lifecycleState: 'shared_draft',
+        title: 'Rúta',
+        totalMinor: 24_000,
+        currency: 'ISK',
+        incurredOn: '2026-08-25',
+        allocationState: 'balanced_unconfirmed',
+        detailHref: `/auth-mvp/utlagt-og-endurgreitt/utgjold/${EXPENSE_ID}/breyta?step=split&draft=${SECOND_DRAFT_ID}`,
+      }],
+    })
+  })
+
   it.each([
     ['private target mismatch', [privateRow({
       detail_target: { kind: 'private_draft', draft_id: SECOND_DRAFT_ID },
     })]],
     ['private row with shared target', [privateRow({
       detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },
+    })]],
+    ['private edit target mismatch', [privateEditRow({
+      detail_target: {
+        kind: 'edit_draft', expense_id: EXPENSE_ID, draft_id: SECOND_DRAFT_ID,
+      },
     })]],
     ['author row with participant target', [authorSharedRow({
       detail_target: { kind: 'shared_draft', publication_id: PUBLICATION_ID },

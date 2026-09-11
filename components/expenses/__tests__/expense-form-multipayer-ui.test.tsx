@@ -112,6 +112,8 @@ const translations: Record<string, string> = {
   'expenseForm.saveNow': 'Vista',
   'expenseForm.draftSaving': 'Vista breytingar...', 'expenseForm.draftSaved': 'Breytingar vistaðar',
   'expenseForm.draftSaveFailed': 'Vistun mistókst',
+  'expenseForm.editPaymentContextOneOff': 'Fyrri greiðslur fyrir þennan kostnað haldast óbreyttar og sjást hér eingöngu til upplýsinga.',
+  'expenseForm.editPaymentContextGroup': 'Greiðslurnar hér eru saga hópsins og eru ekki sjálfkrafa eignaðar þessum eina kostnaði.',
   'deleteControl.trigger': 'Eyða kostnaði',
   'deleteControl.confirm': 'Eyða kostnaði',
   'deleteControl.deleting': 'Eyði kostnaði...',
@@ -2127,6 +2129,7 @@ describe('ExpenseForm simplified split and autosave', () => {
       edit: {
         expense: editExpense,
         expectedFinancialVersion: 4,
+        hasConfirmedRepayment: true,
         repayments: [{
           id: 'repayment-1', obligationId: 'obligation-1', groupId: 'group-1',
           fromMemberId: 'member-anna', fromDisplayName: 'Anna',
@@ -2143,6 +2146,25 @@ describe('ExpenseForm simplified split and autosave', () => {
     expect(within(participants).getAllByText(/Hlutur í kostnaði: 5\.000\s*kr\./)).toHaveLength(2)
     expect(within(participants).getByText(/Lagði út 10\.000\s*kr\./)).toBeInTheDocument()
     expect(within(participants).getByText(/Greiðsla tilkynnt .* · staðfest/)).toBeInTheDocument()
+    expect(screen.getByText(
+      'Fyrri greiðslur fyrir þennan kostnað haldast óbreyttar og sjást hér eingöngu til upplýsinga.',
+    )).toBeInTheDocument()
+  })
+
+  it('describes persisted repayments as group-scoped context in a reusable group edit', () => {
+    renderForm({
+      initialStep: 'split',
+      edit: {
+        expense: editableExpense(),
+        expectedFinancialVersion: 4,
+        hasReportedRepayment: true,
+        repayments: [],
+      },
+    })
+
+    expect(screen.getByText(
+      'Greiðslurnar hér eru saga hópsins og eru ekki sjálfkrafa eignaðar þessum eina kostnaði.',
+    )).toBeInTheDocument()
   })
 
   it('shares an underallocated fixed split as a recoverable draft without creating ledger state', async () => {

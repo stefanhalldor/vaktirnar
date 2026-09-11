@@ -1525,8 +1525,8 @@ export async function openExpenseEditRevision(
     if (!view) throw new Error('expense_not_found')
     const { expense, group } = view
     if (expense.status !== 'active'
-      || group.status === 'closed'
-      || (!expense.createdBySelf && !group.canManage)) {
+      || group.status !== 'active'
+      || !expense.createdBySelf) {
       throw new Error('expense_not_allowed')
     }
     const referenced = new Set([

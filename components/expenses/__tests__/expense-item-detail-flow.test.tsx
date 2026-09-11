@@ -80,6 +80,8 @@ const translations: Record<string, string> = {
   'expense.editDetails': 'Breyta færslu',
   'editRevision.openAction': 'Færa í drög',
   'editRevision.cannotOpen': 'Ekki er hægt að færa þennan kostnað í drög.',
+  'editRevision.settlementBusy': 'Ekki er hægt að færa kostnaðinn í drög meðan uppgjör er í gangi.',
+  'editRevision.lifecycleBlocked': 'Aðeins sá sem stofnaði kostnaðinn getur fært hann í drög.',
   'editRevision.choiceTitle': 'Hvernig viltu vinna breytingarnar?',
   'editRevision.choiceBody': 'Staðfesti kostnaðurinn gildir áfram.',
   'editRevision.paymentWarning': 'Ekki er hægt að gera kostnaðinn upp meðan breyting er opin.',
@@ -323,9 +325,11 @@ describe('ExpenseItemDetail flow context', () => {
     const rendered = render(await ExpenseItemDetail({
       group: recipientGroup,
       expense: recipientExpense,
+      revisionState: { status: 'none', canOpen: true, openReason: 'clean' },
     }))
     expect(screen.getByText('Stofnað af Stefán')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ég kannast ekki við þetta' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Færa í drög' })).not.toBeInTheDocument()
 
     rendered.unmount()
     render(await ExpenseItemDetail({ group, expense }))
@@ -877,7 +881,7 @@ describe('ExpenseItemDetail flow context', () => {
     expect(screen.queryByRole('button', { name: 'Merkja greiðslu móttekna' })).not.toBeInTheDocument()
   })
 
-  it('keeps clean-only editing unavailable after reported settlement starts', async () => {
+  it('explains when an active settlement blocks moving the expense to drafts', async () => {
     const repayment = {
       id: 'repayment-1', obligationId: 'obligation-1', groupId: group.id,
       fromMemberId: 'anna', fromDisplayName: 'Anna', toMemberId: 'self', toDisplayName: 'Ég',
@@ -895,11 +899,11 @@ describe('ExpenseItemDetail flow context', () => {
         repayments: [repayment],
       },
       expense,
-      revisionState: { status: 'none', canOpen: false, openReason: 'history' },
+      revisionState: { status: 'none', canOpen: false, openReason: 'settlement' },
     }))
 
     expect(screen.queryByRole('button', { name: 'Færa í drög' })).not.toBeInTheDocument()
-    expect(screen.getByText('Ekki er hægt að færa þennan kostnað í drög.')).toBeInTheDocument()
+    expect(screen.getByText('Ekki er hægt að færa kostnaðinn í drög meðan uppgjör er í gangi.')).toBeInTheDocument()
     expect(screen.getByText('Uppgjörið þarfnast yfirferðar')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Fara í uppgjör' })).toHaveAttribute(
       'href', '/auth-mvp/utlagt-og-endurgreitt/utgjold/expense-1?view=settlement',

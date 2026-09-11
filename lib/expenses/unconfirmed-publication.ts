@@ -322,6 +322,12 @@ const privateDraftDetailTargetWireSchema = z.object({
   draft_id: sql159UuidSchema,
 }).strict()
 
+const editDraftDetailTargetWireSchema = z.object({
+  kind: z.literal('edit_draft'),
+  expense_id: sql159UuidSchema,
+  draft_id: sql159UuidSchema,
+}).strict()
+
 const sharedDraftDetailTargetWireSchema = z.object({
   kind: z.literal('shared_draft'),
   publication_id: sql159UuidSchema,
@@ -577,10 +583,39 @@ const groupParticipantCreationDraftWireSchema = z.object({
   }
 })
 
+const groupPrivateEditDraftWireSchema = z.object({
+  lifecycle_state: z.literal('private_draft'),
+  draft_id: sql159UuidSchema,
+  draft_version: sql159PositiveSafeIntegerSchema,
+  title: sql159TitleSchema,
+  total_minor: sql159PositiveSafeIntegerSchema,
+  currency: sql159CurrencySchema,
+  incurred_on: sql159DateSchema,
+  allocation_state: z.literal('incomplete'),
+  viewer_role: z.literal('author'),
+  detail_target: editDraftDetailTargetWireSchema,
+}).strict().superRefine((value, context) => {
+  if (value.detail_target.draft_id !== value.draft_id) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['detail_target', 'draft_id'],
+      message: 'draft_target_mismatch',
+    })
+  }
+})
+
+const groupAuthorSharedEditDraftWireSchema = z.object({
+  ...visibleSharedDraftBaseWire,
+  viewer_role: z.literal('author'),
+  detail_target: editDraftDetailTargetWireSchema,
+}).strict()
+
 const groupCreationDraftWireSchema = z.union([
   groupPrivateCreationDraftWireSchema,
   groupAuthorCreationDraftWireSchema,
   groupParticipantCreationDraftWireSchema,
+  groupPrivateEditDraftWireSchema,
+  groupAuthorSharedEditDraftWireSchema,
 ])
 
 const groupCreationDraftListWireSchema = z.union([
@@ -614,9 +649,15 @@ export function parseGroupCreationExpenseDrafts(
   }
   if (parsed.data.status === 'none') return { status: 'ready', items: [] }
 
-  const targetKeys = parsed.data.rows.map((row) => row.detail_target.kind === 'private_draft'
-    ? `private:${row.detail_target.draft_id}`
-    : `shared:${row.detail_target.publication_id}`)
+  const targetKeys = parsed.data.rows.map((row) => {
+    if (row.detail_target.kind === 'private_draft') {
+      return `private:${row.detail_target.draft_id}`
+    }
+    if (row.detail_target.kind === 'edit_draft') {
+      return `edit:${row.detail_target.expense_id}:${row.detail_target.draft_id}`
+    }
+    return `shared:${row.detail_target.publication_id}`
+  })
   const publicationIds = parsed.data.rows.flatMap((row) => row.lifecycle_state === 'shared_draft'
     ? [row.publication_id]
     : [])
@@ -636,7 +677,9 @@ export function parseGroupCreationExpenseDrafts(
       allocationState: row.allocation_state,
       detailHref: row.detail_target.kind === 'private_draft'
         ? `/auth-mvp/utlagt-og-endurgreitt/hopar/${encodeURIComponent(parsedGroupId.data)}/nytt-utgjald?draft=${encodeURIComponent(row.detail_target.draft_id)}`
-        : `/auth-mvp/utlagt-og-endurgreitt/drog/${encodeURIComponent(row.detail_target.publication_id)}`,
+        : row.detail_target.kind === 'edit_draft'
+          ? `/auth-mvp/utlagt-og-endurgreitt/utgjold/${encodeURIComponent(row.detail_target.expense_id)}/breyta?step=split&draft=${encodeURIComponent(row.detail_target.draft_id)}`
+          : `/auth-mvp/utlagt-og-endurgreitt/drog/${encodeURIComponent(row.detail_target.publication_id)}`,
     })),
   }
 }

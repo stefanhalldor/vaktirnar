@@ -142,6 +142,10 @@ interface ShareRow {
   amount_minor: number | string
 }
 
+interface EditBindingRow {
+  expense_id: string
+}
+
 interface ObligationRow {
   id: string
   group_id: string
@@ -467,14 +471,16 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   settlementBatchRepaymentLinks: SettlementBatchRepaymentLinkRow[]
   settlementBatchReady: boolean
   eligibleSettlementContext: EligibleSettlementContext
+  editingExpenseIds: Set<string>
   claimContext: ExpenseClaimContext
   creatorNames: Map<string, string>
 }> {
   const admin = getAdmin()
-  const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult, claimContextResult, eligibleSettlementResult] = await Promise.all([
+  const [groupResult, membersResult, expensesResult, editBindingsResult, repaymentsResult, activityResult, memberInvitationsResult, claimContextResult, eligibleSettlementResult] = await Promise.all([
     admin.from('expense_groups').select(GROUP_SELECT).eq('id', groupId).maybeSingle(),
     admin.from('expense_group_members').select(MEMBER_SELECT).eq('group_id', groupId).order('created_at', { ascending: true }),
     admin.from('expenses').select(EXPENSE_SELECT).eq('group_id', groupId).order('incurred_on', { ascending: false }).order('created_at', { ascending: false }),
+    admin.from('expense_edit_revision_bindings').select('expense_id').eq('group_id', groupId),
     admin.from('expense_repayments').select('id, group_id, from_member_id, to_member_id, amount_minor, currency, occurred_on, note, status, reported_by, payment_preference_snapshot, created_at').eq('group_id', groupId).order('created_at', { ascending: false }),
     admin.from('expense_activity').select('id, sequence_no, event_type, entity_type, entity_id, summary_code, actor_display_name, expense_title, group_title, created_at').eq('group_id', groupId).order('sequence_no', { ascending: false }).limit(50),
     admin.from('expense_member_invitations').select('id, group_id, member_id, status, attempt_status, recipient_email_canonical').eq('group_id', groupId).eq('status', 'pending').gt('expires_at', new Date().toISOString()),
@@ -490,6 +496,7 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   throwOnError(groupResult.error, 'group query')
   throwOnError(membersResult.error, 'member query')
   throwOnError(expensesResult.error, 'expense query')
+  throwOnError(editBindingsResult.error, 'edit revision binding query')
   throwOnError(repaymentsResult.error, 'repayment query')
   throwOnError(activityResult.error, 'activity query')
   throwOnError(memberInvitationsResult.error, 'member invitation query')
@@ -498,6 +505,9 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
 
   const members = (membersResult.data ?? []) as MemberRow[]
   const expenses = (expensesResult.data ?? []) as ExpenseRow[]
+  const editingExpenseIds = new Set(
+    ((editBindingsResult.data ?? []) as EditBindingRow[]).map((row) => row.expense_id),
+  )
   const repayments = (repaymentsResult.data ?? []) as RepaymentRow[]
   const expenseIds = expenses.map((row) => row.id)
   const repaymentIds = repayments.map((row) => row.id)
@@ -600,6 +610,7 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
     eligibleSettlementContext: eligibleSettlementResult.error
       ? { ready: false, financialVersion: null, requiresReview: true, transfers: [] }
       : parseEligibleSettlementContext(eligibleSettlementResult.data),
+    editingExpenseIds,
     claimContext: claimContextResult.data === null
       ? { requiresReview: false, disputes: [], bindings: [] }
       : parseClaimContext(claimContextResult.data),
@@ -750,6 +761,7 @@ function parseClaimContext(value: unknown): ExpenseClaimContext {
 function buildGroupView(
   rows: Awaited<ReturnType<typeof loadGroupRows>>,
   actorUserId: string,
+  options: { includeEditingExpenses?: boolean } = {},
 ): ExpenseGroupView {
   const activeMembers = rows.members.filter((member) => member.status === 'active')
   const actorMember = activeMembers.find((member) => member.user_id === actorUserId)
@@ -818,7 +830,9 @@ function buildGroupView(
     }
   })
 
-  const ledgerEntries: ExpenseLedgerEntry[] = rows.expenses.map((expense) => ({
+  const ledgerEntries: ExpenseLedgerEntry[] = rows.expenses
+    .filter((expense) => !rows.editingExpenseIds.has(expense.id))
+    .map((expense) => ({
     expenseId: expense.id,
     totalMinor: safeMinor(expense.total_minor),
     currency: expense.currency,
@@ -837,7 +851,7 @@ function buildGroupView(
         amountMinor: safeMinor(share.amount_minor),
         currency: expense.currency,
       })),
-  }))
+    }))
   const obligations: DebtObligation[] = rows.obligations.map((row) => ({
     obligationId: row.id,
     fromPartyId: row.from_member_id,
@@ -877,6 +891,7 @@ function buildGroupView(
     }))
   const reportedReviewKeys = reportedRepaymentsNeedingReview(domainBalances, reportedReservations)
   const settlementRequiresReview = rows.eligibleSettlementContext.requiresReview
+    || rows.editingExpenseIds.size > 0
     || reportedReviewKeys.size > 0
     || rows.claimContext.requiresReview
   const transfers = rows.eligibleSettlementContext.transfers.map((transfer) => {
@@ -911,49 +926,53 @@ function buildGroupView(
     }
   })
 
-  const expenseViews: ExpenseItemView[] = rows.expenses.map((expense) => ({
-    id: expense.id,
-    groupId: expense.group_id,
-    title: expense.title,
-    totalMinor: safeMinor(expense.total_minor),
-    currency: expense.currency,
-    incurredOn: expense.incurred_on,
-    category: expense.category,
-    note: expense.note,
-    status: expense.status,
-    splitMethod: expense.split_method,
-    createdBySelf: expense.created_by === actorUserId,
-    creatorDisplayName: expense.created_by
-      ? rows.creatorNames.get(expense.created_by) ?? null
-      : null,
-    createdAt: expense.created_at,
-    payments: rows.payments
-      .filter((payment) => payment.expense_id === expense.id)
-      .map((payment) => ({
-        memberId: payment.member_id,
-        displayName: memberName(payment.member_id),
-        amountMinor: safeMinor(payment.amount_minor),
-      })),
-    shares: rows.shares
-      .filter((share) => share.expense_id === expense.id)
-      .map((share) => ({
-        memberId: share.member_id,
-        displayName: memberName(share.member_id),
-        amountMinor: safeMinor(share.amount_minor),
-      })),
-    shareCollaborators: rows.shareCollaborators
-      .filter((collaborator) => collaborator.expense_id === expense.id)
-      .map((collaborator) => ({
-        id: collaborator.id,
-        shareMemberId: collaborator.share_member_id,
-        memberId: collaborator.collaborator_member_id,
-        status: collaborator.status,
-        createdAt: collaborator.created_at,
-      })),
-    revisions: [],
-    claimDisputes: rows.claimContext.disputes
-      .filter((dispute) => dispute.expenseId === expense.id),
-  }))
+  const expenseViews: ExpenseItemView[] = rows.expenses
+    .filter((expense) => (
+      options.includeEditingExpenses || !rows.editingExpenseIds.has(expense.id)
+    ))
+    .map((expense) => ({
+      id: expense.id,
+      groupId: expense.group_id,
+      title: expense.title,
+      totalMinor: safeMinor(expense.total_minor),
+      currency: expense.currency,
+      incurredOn: expense.incurred_on,
+      category: expense.category,
+      note: expense.note,
+      status: expense.status,
+      splitMethod: expense.split_method,
+      createdBySelf: expense.created_by === actorUserId,
+      creatorDisplayName: expense.created_by
+        ? rows.creatorNames.get(expense.created_by) ?? null
+        : null,
+      createdAt: expense.created_at,
+      payments: rows.payments
+        .filter((payment) => payment.expense_id === expense.id)
+        .map((payment) => ({
+          memberId: payment.member_id,
+          displayName: memberName(payment.member_id),
+          amountMinor: safeMinor(payment.amount_minor),
+        })),
+      shares: rows.shares
+        .filter((share) => share.expense_id === expense.id)
+        .map((share) => ({
+          memberId: share.member_id,
+          displayName: memberName(share.member_id),
+          amountMinor: safeMinor(share.amount_minor),
+        })),
+      shareCollaborators: rows.shareCollaborators
+        .filter((collaborator) => collaborator.expense_id === expense.id)
+        .map((collaborator) => ({
+          id: collaborator.id,
+          shareMemberId: collaborator.share_member_id,
+          memberId: collaborator.collaborator_member_id,
+          status: collaborator.status,
+          createdAt: collaborator.created_at,
+        })),
+      revisions: [],
+      claimDisputes: rows.claimContext.disputes
+        .filter((dispute) => dispute.expenseId === expense.id),
+    }))
 
   const repaymentViews: ExpenseRepaymentView[] = rows.repayments.map((repayment) => {
     const from = membersById.get(repayment.from_member_id)
@@ -986,9 +1005,12 @@ function buildGroupView(
       note: repayment.note,
       status: repayment.status,
       createdAt: repayment.created_at,
-      canConfirm: !settlementBatchLink && isReported && (viewerIsTo || managedCreditor),
-      canReject: !settlementBatchLink && isReported && (viewerIsTo || managedCreditor),
-      canCancel: !settlementBatchLink
+      canConfirm: rows.editingExpenseIds.size === 0
+        && !settlementBatchLink && isReported && (viewerIsTo || managedCreditor),
+      canReject: rows.editingExpenseIds.size === 0
+        && !settlementBatchLink && isReported && (viewerIsTo || managedCreditor),
+      canCancel: rows.editingExpenseIds.size === 0
+        && !settlementBatchLink
         && isReported
         && (viewerIsFrom || repayment.reported_by === actorUserId || canManage),
       requiresReview: isReported && reportedReviewKeys.has(settlementTransferReviewKey({
@@ -1071,6 +1093,7 @@ function buildGroupView(
     guestMemberRenameReady: rows.guestMemberRenameReady,
     repayments: repaymentViews,
     activity,
+    editRevisionState: rows.editingExpenseIds.size > 0 ? 'open' : 'none',
   }
 }
 
@@ -1255,11 +1278,14 @@ async function attachCurrentPaymentInstructions(
 export async function getExpenseGroupView(
   actorUserId: string,
   groupId: string,
-  options: { includeCurrentPaymentInstructions?: boolean } = {},
+  options: {
+    includeCurrentPaymentInstructions?: boolean
+    includeEditingExpenses?: boolean
+  } = {},
 ): Promise<ExpenseGroupView | null> {
   try {
     const rows = await loadGroupRows(groupId, actorUserId)
-    const group = buildGroupView(rows, actorUserId)
+    const group = buildGroupView(rows, actorUserId, options)
     return options.includeCurrentPaymentInstructions
       ? await attachCurrentPaymentInstructions(group, rows, actorUserId)
       : group
@@ -2027,7 +2053,7 @@ export async function getExpenseEditRevisionState(
     const source = record(data)
     if (!source || source.status === 'unavailable') return { status: 'unavailable' }
     if (source.status === 'none') {
-      const openReasons = new Set(['clean', 'history', 'lifecycle', 'unavailable'])
+      const openReasons = new Set(['clean', 'settlement', 'lifecycle', 'unavailable'])
       if (typeof source.can_open !== 'boolean'
         || typeof source.open_reason !== 'string'
         || !openReasons.has(source.open_reason)
@@ -2037,7 +2063,7 @@ export async function getExpenseEditRevisionState(
       return {
         status: 'none',
         canOpen: source.can_open,
-        openReason: source.open_reason as 'clean' | 'history' | 'lifecycle' | 'unavailable',
+        openReason: source.open_reason as 'clean' | 'settlement' | 'lifecycle' | 'unavailable',
       }
     }
     if (source.status !== 'open'
@@ -2149,7 +2175,7 @@ export async function getExpenseItemLookup(
   const group = await getExpenseGroupView(
     actorUserId,
     (data as { group_id: string }).group_id,
-    options,
+    { ...options, includeEditingExpenses: true },
   )
   if (!group) return { status: 'forbidden' }
   const expense = group.expenses.find((item) => item.id === expenseId)

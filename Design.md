@@ -531,6 +531,24 @@ meðvitaðri aðgerð. Notendahugtökin eru aðeins:
 - Technical hugtök eins og publication, generation, snapshot, audience og CAS
   eiga ekki að sjást í texta viðmótsins.
 
+### Staðfestur kostnaður færður í drög
+
+`Færa í drög` er sama notendahugtak óháð því hvernig staðfest baseline er
+varðveitt undir húddinu. Meðan breytingadrög eru opin á staðfesti kostnaðurinn
+ekki að birtast eða reiknast sem staðfest færsla; nákvæmlega ein draft-framsetning
+tekur við á dashboardi, viðburði og hópyfirliti.
+
+- Aðeins nákvæmur stofnandi kostnaðarins má opna breytingadrög.
+- Fyrri tilkynntar og staðfestar greiðslur haldast óbreyttar og sjást read-only.
+  Í dedicated `one_off` samhengi má tengja þær kostnaðinum þegar provenance er
+  ótvírætt; í endurnýtanlegum hópi skal kalla þær greiðslusögu hópsins.
+- Nýjar greiðslu- og uppgjörsaðgerðir eru læstar meðan breytingadrög eru opin.
+- `Hætta við breytingar` endurheimtir óbreytt staðfest baseline. Ný staðfesting
+  beitir nýrri skiptingu en varðveitir greiðslusöguna.
+- Notið sömu mobile-first form-, dialog-, focus-, pending- og loading-primitives
+  og annars staðar í útgjaldaflæðinu; lifecycle-breytingin má ekki búa til nýtt
+  navigation- eða modal-mynstur.
+
 ## Microcopy
 
 Teskeið-tónn er:

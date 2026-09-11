@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { isValidElement } from 'react'
+import { describe, expect, it, vi } from 'vitest'
 import {
   canonicalOneOffExpenseHref,
   expenseDetailHref,
@@ -62,6 +63,79 @@ describe('expense flow route mapping', () => {
     expect(groupPage).toContain('if (canonicalExpenseHref) redirect(canonicalExpenseHref)')
     expect(groupDetail).not.toContain('<ExpenseFlowNav')
     expect(expensePage).toContain("result.group.kind === 'one_off'")
-    expect(expensePage).toContain("? '/auth-mvp/utlagt-og-endurgreitt'")
   })
+})
+
+const routeMocks = vi.hoisted(() => ({
+  lookup: vi.fn(), expenses: vi.fn(), events: vi.fn(), linkedEvent: vi.fn(), context: vi.fn(),
+}))
+vi.mock('server-only', () => ({}))
+vi.mock('next/navigation', () => ({ notFound: () => { throw new Error('unexpected notFound') } }))
+vi.mock('@/components/expenses/ExpenseShell', () => ({ ExpenseShell: () => null }))
+vi.mock('@/components/expenses/ExpenseItemDetail', () => ({ ExpenseItemDetail: () => null }))
+vi.mock('@/components/expenses/i18n.server', () => ({
+  getExpenseTranslations: async () => (key: string) => key,
+}))
+vi.mock('@/lib/expenses/guard', () => ({
+  guardExpenseSession: async () => ({ user: { id: 'actor-test', email: 'actor@example.test' } }),
+}))
+vi.mock('@/lib/expenses/participants.server', () => ({ getExpenseParticipantOptions: vi.fn() }))
+vi.mock('@/lib/expenses/repository.server', () => ({
+  getExpenseItemLookup: routeMocks.lookup,
+  getExpenseEventIdentityCandidates: vi.fn(),
+  getExpenseRelationshipIdentityManagement: vi.fn(),
+}))
+vi.mock('@/lib/events/repository.server', () => ({
+  getExpenseEventLinkManagementV2: vi.fn(),
+  getExpenseLinkedEventId: routeMocks.linkedEvent,
+  isExpenseEventContext: routeMocks.context,
+}))
+vi.mock('@/lib/events/guard', () => ({ canUseEventExpenses: routeMocks.events }))
+vi.mock('@/lib/loans/guard', () => ({ checkFeatureAccess: routeMocks.expenses }))
+
+import ExpenseItemPage from '@/app/auth-mvp/utlagt-og-endurgreitt/utgjold/[expenseId]/page'
+import { eventDetailPath } from '@/lib/events/contracts'
+
+// Exercise the actual page and both consumers of its routing decision.
+// Permissions overlap deliberately, so moving a branch changes an observed result.
+describe('expense page return-route behavior', () => {
+  const groupId = 'group-routing-42'
+  const linkedId = 'linked-event-73'
+  const root = '/auth-mvp/utlagt-og-endurgreitt'
+  const cases = [
+    { label: 'one-off root', kind: 'one_off', events: false, linked: null, context: false, href: root },
+    { label: 'group detail', kind: 'group', events: false, linked: null, context: false, href: root + '/hopar/' + groupId },
+    { label: 'linked event over one-off', kind: 'one_off', events: true, linked: linkedId, context: false, href: eventDetailPath(linkedId) },
+    { label: 'linked event over group', kind: 'group', events: true, linked: linkedId, context: true, href: eventDetailPath(linkedId) },
+    { label: 'event context uses group ID', kind: 'group', events: true, linked: null, context: true, href: eventDetailPath(groupId) },
+    { label: 'event permission without context', kind: 'group', events: true, linked: null, context: false, href: root + '/hopar/' + groupId },
+    { label: 'event permission alone keeps root', kind: 'one_off', events: true, linked: null, context: false, href: root },
+    { label: 'disabled events keep group', kind: 'group', events: false, linked: linkedId, context: true, href: root + '/hopar/' + groupId },
+  ] as const
+
+  for (const canUseExpenses of [false, true]) {
+    it.each(cases)(`$label, expenses access = ${canUseExpenses}`, async (scenario) => {
+      routeMocks.lookup.mockResolvedValue({
+        status: 'ok',
+        group: { id: groupId, kind: scenario.kind, status: 'active', canManage: false },
+        expense: { id: 'expense-routing-99', title: 'Routing test', status: 'active', createdBySelf: false },
+      })
+      routeMocks.expenses.mockResolvedValue(canUseExpenses)
+      routeMocks.events.mockResolvedValue(scenario.events)
+      routeMocks.linkedEvent.mockResolvedValue(scenario.linked)
+      routeMocks.context.mockResolvedValue(scenario.context)
+      const page = await ExpenseItemPage({
+        params: Promise.resolve({ expenseId: 'expense-routing-99' }),
+        searchParams: Promise.resolve({}),
+      })
+      expect(isValidElement(page)).toBe(true)
+      if (!isValidElement<{ backHref: string; children: unknown }>(page)) throw new Error('missing shell')
+      const expectedHref = canUseExpenses ? scenario.href : '/auth-mvp/heim'
+      expect(page.props.backHref).toBe(expectedHref)
+      const detail = page.props.children
+      expect(isValidElement(detail)).toBe(true)
+      if (!isValidElement<{ deleteSuccessHref: string }>(detail)) throw new Error('missing detail')
+      expect(detail.props.deleteSuccessHref).toBe(expectedHref)
+    })
+  }
 })

@@ -1638,6 +1638,12 @@ const eventPrivateDraftTargetWireSchema = z.object({
   draft_id: eventId,
 }).strict()
 
+const eventEditDraftTargetWireSchema = z.object({
+  kind: z.literal('edit_draft'),
+  expense_id: eventId,
+  draft_id: eventId,
+}).strict()
+
 const eventSharedDraftTargetWireSchema = z.object({
   kind: z.literal('shared_draft'),
   publication_id: eventId,
@@ -1668,13 +1674,17 @@ const eventExpensePreActiveV2RowWireSchema = z.discriminatedUnion('lifecycle_sta
   z.object({
     lifecycle_state: z.literal('private_draft'),
     ...eventExpensePreActiveBaseWire,
-    detail_target: eventPrivateDraftTargetWireSchema,
+    detail_target: z.union([
+      eventPrivateDraftTargetWireSchema,
+      eventEditDraftTargetWireSchema,
+    ]),
   }).strict(),
   z.object({
     lifecycle_state: z.literal('shared_draft'),
     ...eventExpensePreActiveBaseWire,
     detail_target: z.union([
       eventPrivateDraftTargetWireSchema,
+      eventEditDraftTargetWireSchema,
       eventSharedDraftTargetWireSchema,
     ]).nullable(),
   }).strict(),
@@ -1767,7 +1777,9 @@ function mapEventExpensePreActiveV2(value: unknown): EventExpensePreActiveV1View
         ? null
         : row.detail_target.kind === 'private_draft'
           ? `/auth-mvp/utlagt-og-endurgreitt/nytt?draft=${encodeURIComponent(row.detail_target.draft_id)}`
-          : `/auth-mvp/utlagt-og-endurgreitt/drog/${encodeURIComponent(row.detail_target.publication_id)}`,
+          : row.detail_target.kind === 'edit_draft'
+            ? `/auth-mvp/utlagt-og-endurgreitt/utgjold/${encodeURIComponent(row.detail_target.expense_id)}/breyta?step=split&draft=${encodeURIComponent(row.detail_target.draft_id)}`
+            : `/auth-mvp/utlagt-og-endurgreitt/drog/${encodeURIComponent(row.detail_target.publication_id)}`,
     })),
   }
 }

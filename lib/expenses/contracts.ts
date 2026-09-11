@@ -280,7 +280,7 @@ export type ExpenseEditRevisionStateView =
   | {
       status: 'none'
       canOpen: boolean
-      openReason: 'clean' | 'history' | 'lifecycle' | 'unavailable'
+      openReason: 'clean' | 'settlement' | 'lifecycle' | 'unavailable'
     }
   | {
       status: 'open'

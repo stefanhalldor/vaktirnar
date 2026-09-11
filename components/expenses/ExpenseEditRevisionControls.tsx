@@ -78,7 +78,11 @@ export function ExpenseEditRevisionControls({
   if (!state.canOpen) {
     return (
       <p role="status" className="rounded-xl border border-border bg-muted/50 p-4 text-sm leading-6">
-        {t('editRevision.cannotOpen')}
+        {state.openReason === 'settlement'
+          ? t('editRevision.settlementBusy')
+          : state.openReason === 'lifecycle'
+            ? t('editRevision.lifecycleBlocked')
+            : t('editRevision.cannotOpen')}
       </p>
     )
   }

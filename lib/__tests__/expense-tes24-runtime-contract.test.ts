@@ -16,14 +16,21 @@ describe('TES-24 runtime contract', () => {
     expect(detail).toContain('ExpenseEditRevisionControls')
   })
 
-  it('renders a server-derived settlement lock without hiding confirmed truth', () => {
+  it('renders a server-derived settlement lock while the edit draft replaces confirmed presentation', () => {
     const detail = read('components/expenses/ExpenseItemDetail.tsx')
     const repository = read('lib/expenses/repository.server.ts')
+    const dashboardSql = read('sql/170_expense_dashboard_presentations.sql')
     expect(repository).toContain('getExpenseEditRevisionState')
+    expect(repository).toContain("admin.from('expense_edit_revision_bindings').select('expense_id')")
+    expect(repository).toContain('options.includeEditingExpenses || !rows.editingExpenseIds.has(expense.id)')
+    expect(repository).toContain('{ ...options, includeEditingExpenses: true }')
     expect(detail).toContain("editRevisionState === 'open'")
     expect(detail).toContain("t('editRevision.settlementLockedTitle')")
     expect(detail).toContain("t('editRevision.settlementLockedBody')")
     expect(detail).toContain('<ExpenseSettlementParticipantList')
+    expect(dashboardSql).toMatch(
+      /canonical_presentations AS \([\s\S]+?NOT EXISTS \([\s\S]+?expense_edit_revision_bindings AS binding[\s\S]+?binding\.expense_id = expense\.id/,
+    )
   })
 
   it('renders Færa í drög only from the server-derived clean-open decision', () => {
@@ -31,7 +38,7 @@ describe('TES-24 runtime contract', () => {
     const repository = read('lib/expenses/repository.server.ts')
     const controls = read('components/expenses/ExpenseEditRevisionControls.tsx')
     expect(contracts).toContain("canOpen: boolean")
-    expect(contracts).toContain("openReason: 'clean' | 'history' | 'lifecycle' | 'unavailable'")
+    expect(contracts).toContain("openReason: 'clean' | 'settlement' | 'lifecycle' | 'unavailable'")
     expect(repository).toContain('source.can_open')
     expect(repository).toContain('source.open_reason')
     expect(controls).toContain('state.canOpen')
@@ -105,16 +112,28 @@ describe('TES-24 runtime contract', () => {
   })
 
   it('preserves one visible logical Expense for private/shared audiences', () => {
-    const presentation = read('lib/expenses/dashboard-presentation.ts')
     const repository = read('lib/expenses/repository.server.ts')
-    expect(presentation).toContain('sharedRevisionExpenseIds')
-    expect(presentation).toContain('if (!sharedRevisionExpenseIds.has(expenseId))')
-    expect(presentation).toContain("return { status: 'editing'")
-    expect(presentation).toContain("return { status: 'confirmed' }")
+    const sql177 = read('sql/177_expense_confirmed_to_draft_payments.sql')
     expect(repository).toContain("rpc('expense_list_dashboard_presentations_v1'")
     expect(repository).toContain('classifyExpenseDashboardPresentationResponse(')
     expect(repository).not.toContain('parseVisibleEditRevisionExpenseIds(')
     expect(repository).not.toContain('deriveExpenseConfirmedPresentations(')
+    expect(sql177).toContain("'kind', 'edit_draft'")
+    expect(sql177).toMatch(
+      /visible_candidates AS MATERIALIZED \([\s\S]+?expense_edit_revision_bindings AS edit_binding[\s\S]+?visible_count AS MATERIALIZED/,
+    )
+  })
+
+  it('keeps repayments visible but disables all payment decisions while any edit binding is open', () => {
+    const repository = read('lib/expenses/repository.server.ts')
+    const form = read('components/expenses/ExpenseForm.tsx')
+    expect(repository).toContain('rows.editingExpenseIds.size > 0')
+    expect(repository).toMatch(/canConfirm: rows\.editingExpenseIds\.size === 0/)
+    expect(repository).toMatch(/canReject: rows\.editingExpenseIds\.size === 0/)
+    expect(repository).toMatch(/canCancel: rows\.editingExpenseIds\.size === 0/)
+    expect(form).toContain('ExpenseRepaymentStatusLines')
+    expect(form).toContain("'expenseForm.editPaymentContextOneOff'")
+    expect(form).toContain("'expenseForm.editPaymentContextGroup'")
   })
 
   it('provides translated mobile-first choices and safe failure text', () => {

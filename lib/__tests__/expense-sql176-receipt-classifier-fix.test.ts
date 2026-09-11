@@ -41,8 +41,9 @@ function md5(source: string): string {
   return createHash('md5').update(source).digest('hex')
 }
 
-function sha256(source: Buffer): string {
-  return createHash('sha256').update(source).digest('hex')
+// Only newline representation is ignored; every other UTF-8 byte remains protected.
+function canonicalPredecessorSha256(source: string | Buffer): string {
+  return createHash('sha256').update(source.toString().replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
 }
 
 function functionBody(source: string, signature: string): string {
@@ -74,9 +75,23 @@ function lineContaining(source: string, fragment: string): string {
 }
 
 describe('SQL176 finalization receipt classifier correction', () => {
+
+  // Canonical LF content is pinned to exact Git base bytes, not checkout formatting.
+  it.each([
+    [sql159Bytes, '0b96941e54570c74ca035b42067d705c121399263f6676a92f7ee84f812dfa38'],
+    [sql173Bytes, '5cc70dcb100b3e4a31cb6744b16319eb96db961fc221c4881edfe3b08143a319'],
+  ])('preserves canonical predecessor identity across line endings and rejects edits', (input, expected) => {
+    const lf = input.toString().replace(/\r\n?/g, '\n')
+    for (const source of [lf, lf.replace(/\n/g, '\r\n'), lf.replace(/\n/g, '\r')]) {
+      expect(canonicalPredecessorSha256(source)).toBe(expected)
+      expect(canonicalPredecessorSha256('X' + source.slice(1))).not.toBe(expected)
+      expect(canonicalPredecessorSha256(source.slice(1))).not.toBe(expected)
+      expect(canonicalPredecessorSha256(source + 'X')).not.toBe(expected)
+    }
+  })
   it('derives exactly the six-key classifier from frozen SQL173', () => {
-    expect(sha256(sql173Bytes)).toBe(
-      '1bcf28e9ffe85badca71ff77c63c69cc5663da0120063f9ac8c9a8ead25335d3',
+    expect(canonicalPredecessorSha256(sql173Bytes)).toBe(
+      '5cc70dcb100b3e4a31cb6744b16319eb96db961fc221c4881edfe3b08143a319',
     )
     const predecessor = functionBody(
       sql173,
@@ -95,8 +110,8 @@ describe('SQL176 finalization receipt classifier correction', () => {
   })
 
   it('freezes SQL159 writer and replay as the same six-key contract', () => {
-    expect(sha256(sql159Bytes)).toBe(
-      'b08b49aba63c3281c7e41ec44a72efe9b3810f100fdeef8569a32928adedc4ec',
+    expect(canonicalPredecessorSha256(sql159Bytes)).toBe(
+      '0b96941e54570c74ca035b42067d705c121399263f6676a92f7ee84f812dfa38',
     )
     const finalizer = functionBody(
       sql159,

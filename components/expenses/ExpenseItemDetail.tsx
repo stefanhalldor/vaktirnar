@@ -373,7 +373,7 @@ export async function ExpenseItemDetail({
             </Link>
           </div>
 
-          {canEdit ? (
+          {canEdit && expense.createdBySelf ? (
             <ExpenseEditRevisionControls
               expenseId={expense.id}
               state={revisionState}

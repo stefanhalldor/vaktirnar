@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   classifyExpenseDashboardPresentationResponse,
@@ -8,6 +9,11 @@ import {
 const KEY_A = 'a'.repeat(32)
 const KEY_B = 'b'.repeat(32)
 const KEY_C = 'c'.repeat(32)
+
+const dashboardSql = readFileSync(
+  'sql/170_expense_dashboard_presentations.sql',
+  'utf8',
+).replace(/\r\n/g, '\n')
 
 function row(overrides: Record<string, unknown> = {}) {
   return {
@@ -42,6 +48,18 @@ function privateRow(overrides: Record<string, unknown> = {}) {
     ...overrides,
   })
 }
+
+describe('confirmed-to-draft dashboard identity', () => {
+  it('uses the existing SQL170 edit binding as the single replacement boundary', () => {
+    expect(dashboardSql).toContain('exact_bindings AS (')
+    expect(dashboardSql).toContain('invalid_visible_private_edits AS (')
+    expect(dashboardSql).toContain('private_edit AS (')
+    expect(dashboardSql).toContain('shared_presentations AS (')
+    expect(dashboardSql).toMatch(
+      /canonical_presentations AS \([\s\S]+?NOT EXISTS \([\s\S]+?expense_edit_revision_bindings AS binding[\s\S]+?binding\.expense_id = expense\.id/,
+    )
+  })
+})
 
 describe('SQL170 strict dashboard wire parser', () => {
   it('accepts the exact ready, none and unavailable result states', () => {
