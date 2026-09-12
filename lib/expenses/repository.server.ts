@@ -4,6 +4,7 @@ import { checkFeatureAccess } from '@/lib/loans/guard'
 import { getExpensePayAllEventLabels } from '@/lib/events/repository.server'
 import {
   classifyExpenseDashboardPresentationResponse,
+  formatExpenseDashboardPresentationDiagnostic,
 } from './dashboard-presentations'
 import {
   aggregateLedgerBalances,
@@ -1826,6 +1827,9 @@ export async function getExpenseDashboard(
     dashboardPresentationResult.error,
   )
   const dashboardPresentations = dashboardPresentationClassification.result
+  if (dashboardPresentations.status === 'unavailable' && dashboardPresentationClassification.diagnostic) {
+    console.error(formatExpenseDashboardPresentationDiagnostic(dashboardPresentationClassification.diagnostic))
+  }
   const membershipRows = (data ?? []) as Array<{
     group_id: string
     status: 'active' | 'invited'

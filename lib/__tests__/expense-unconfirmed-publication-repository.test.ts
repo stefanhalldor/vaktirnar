@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -111,6 +111,7 @@ function dashboardProjection() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.spyOn(console, 'error').mockImplementation(() => {})
   mockRpc.mockReset()
   mockFrom.mockImplementation((table: string) => {
     if (table === 'expense_group_members') {
@@ -137,6 +138,73 @@ beforeEach(() => {
   })
   mockGetAdmin.mockReturnValue({ from: mockFrom, rpc: mockRpc })
 })
+afterEach(() => vi.restoreAllMocks())
+
+describe('dashboard unavailable diagnostic privacy', () => {
+  const prefix = '[expenses] dashboard presentation diagnostic '
+  const privateData = {
+    title: 'PRIVATE_RECEIPT_TITLE', description: 'PRIVATE_DESCRIPTION',
+    amount: 987654321, currency: 'EUR', actorId: ACTOR_ID, expenseId: EXPENSE_ID,
+    groupId: GROUP_ID, eventId: '60000000-0000-4000-8000-000000000001',
+    email: 'private-person@example.test', name: 'PRIVATE_PERSON_NAME',
+    path: '/private/receipt/file.sql', sql: 'SELECT PRIVATE_FINANCIAL_DATA',
+    token: 'PRIVATE_TOKEN', cookie: 'PRIVATE_COOKIE', body: 'PRIVATE_REQUEST_BODY',
+  }
+
+  function setupDiagnosticResponse(data: unknown, error: unknown = null) {
+    mockRpc.mockImplementation(async (name: string) => {
+      if (name === 'expense_get_my_member_invitations') return { data: [], error: null }
+      if (name === 'expense_list_dashboard_presentations_v1') {
+        return { data, error, transportPrivate: privateData }
+      }
+      throw new Error(`unexpected_rpc:${name}`)
+    })
+  }
+
+  it.each(['rpc_error', 'sql_unavailable', 'invalid_envelope', 'parser_rejected_ready_payload'] as const)(
+    'logs only approved scalar metadata for %s, with no hidden extra arguments', async category => {
+      const payload = category === 'sql_unavailable'
+        ? { contract_version: 1, status: 'unavailable', rows: [] }
+        : category === 'parser_rejected_ready_payload'
+          ? { ...dashboardProjection(), rows: [{ ...dashboardProjection().rows[0], privateData }] }
+          : { contract_version: 1, status: 'unavailable', rows: [], privateData }
+      const rawError = { code: '42501', message: JSON.stringify(privateData), details: privateData,
+        hint: privateData.path, stack: privateData.sql }
+      setupDiagnosticResponse(payload, category === 'rpc_error' ? rawError : null)
+      const result = await getExpenseDashboard(ACTOR_ID)
+      expect(result.dashboardPresentations).toEqual({ status: 'unavailable', rows: [] })
+      expect(console.error).toHaveBeenCalledTimes(1)
+      const allArguments = vi.mocked(console.error).mock.calls
+      expect(allArguments[0]).toHaveLength(1)
+      const line = allArguments[0]![0]
+      expect(typeof line).toBe('string')
+      expect(line.startsWith(prefix)).toBe(true)
+      const metadata = JSON.parse(line.slice(prefix.length))
+      expect(metadata).toEqual(category === 'rpc_error' ? {
+        classification: 'rpc_error', sqlState: '42501', errorCategory: 'postgres',
+      } : {
+        classification: category,
+        predicate: category === 'sql_unavailable' ? 'envelope.status_unavailable'
+          : category === 'invalid_envelope' ? 'envelope.exact_shape' : 'row.exact_shape',
+        contractVersion: 1,
+        returnedStatus: category === 'parser_rejected_ready_payload' ? 'ready' : 'unavailable',
+        rowCount: category === 'parser_rejected_ready_payload' ? 1 : 0,
+      })
+      const serialized = JSON.stringify(allArguments)
+      for (const value of Object.values(privateData)) expect(serialized).not.toContain(String(value))
+      expect(serialized).not.toContain(JSON.stringify(payload))
+      expect(serialized).not.toContain(JSON.stringify(rawError))
+    },
+  )
+
+  it.each(['ready', 'none'] as const)('does not log a normal %s result', async status => {
+    setupDiagnosticResponse(status === 'ready' ? dashboardProjection()
+      : { contract_version: 1, status: 'none', rows: [] })
+    const result = await getExpenseDashboard(ACTOR_ID)
+    expect(result.dashboardPresentations.status).toBe(status)
+    expect(console.error).not.toHaveBeenCalled()
+  })
+})
 
 describe('SQL159/SQL175 repository boundaries', () => {
   it('uses SQL170 as the sole directory projection rather than composing lifecycle rows in the repository', () => {
@@ -144,8 +212,9 @@ describe('SQL159/SQL175 repository boundaries', () => {
     expect(source).toContain("rpc('expense_list_dashboard_presentations_v1'")
     expect(source).toContain('classifyExpenseDashboardPresentationResponse')
     expect(source).not.toContain('deriveExpenseConfirmedPresentations')
-    expect(source).not.toContain('formatExpenseDashboardPresentationDiagnostic')
-    expect(source).not.toContain('[expenses] dashboard presentation diagnostic')
+    expect(source).toContain("dashboardPresentations.status === 'unavailable' && dashboardPresentationClassification.diagnostic")
+    expect(source).toContain('console.error(formatExpenseDashboardPresentationDiagnostic(dashboardPresentationClassification.diagnostic))')
+    expect(source).not.toMatch(/\.from\(['"]expense_edit_revision_bindings['"]\)/)
   })
 
   it('resolves only an exact actor-owned bound edit draft', async () => {
