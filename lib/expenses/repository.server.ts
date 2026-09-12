@@ -142,10 +142,6 @@ interface ShareRow {
   amount_minor: number | string
 }
 
-interface EditBindingRow {
-  expense_id: string
-}
-
 interface ObligationRow {
   id: string
   group_id: string
@@ -476,11 +472,10 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   creatorNames: Map<string, string>
 }> {
   const admin = getAdmin()
-  const [groupResult, membersResult, expensesResult, editBindingsResult, repaymentsResult, activityResult, memberInvitationsResult, claimContextResult, eligibleSettlementResult] = await Promise.all([
+  const [groupResult, membersResult, expensesResult, repaymentsResult, activityResult, memberInvitationsResult, claimContextResult, eligibleSettlementResult] = await Promise.all([
     admin.from('expense_groups').select(GROUP_SELECT).eq('id', groupId).maybeSingle(),
     admin.from('expense_group_members').select(MEMBER_SELECT).eq('group_id', groupId).order('created_at', { ascending: true }),
     admin.from('expenses').select(EXPENSE_SELECT).eq('group_id', groupId).order('incurred_on', { ascending: false }).order('created_at', { ascending: false }),
-    admin.from('expense_edit_revision_bindings').select('expense_id').eq('group_id', groupId),
     admin.from('expense_repayments').select('id, group_id, from_member_id, to_member_id, amount_minor, currency, occurred_on, note, status, reported_by, payment_preference_snapshot, created_at').eq('group_id', groupId).order('created_at', { ascending: false }),
     admin.from('expense_activity').select('id, sequence_no, event_type, entity_type, entity_id, summary_code, actor_display_name, expense_title, group_title, created_at').eq('group_id', groupId).order('sequence_no', { ascending: false }).limit(50),
     admin.from('expense_member_invitations').select('id, group_id, member_id, status, attempt_status, recipient_email_canonical').eq('group_id', groupId).eq('status', 'pending').gt('expires_at', new Date().toISOString()),
@@ -496,7 +491,6 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
   throwOnError(groupResult.error, 'group query')
   throwOnError(membersResult.error, 'member query')
   throwOnError(expensesResult.error, 'expense query')
-  throwOnError(editBindingsResult.error, 'edit revision binding query')
   throwOnError(repaymentsResult.error, 'repayment query')
   throwOnError(activityResult.error, 'activity query')
   throwOnError(memberInvitationsResult.error, 'member invitation query')
@@ -505,8 +499,17 @@ async function loadGroupRows(groupId: string, actorUserId: string): Promise<{
 
   const members = (membersResult.data ?? []) as MemberRow[]
   const expenses = (expensesResult.data ?? []) as ExpenseRow[]
+  // The binding table is internal, including for service_role. The existing
+  // scoped RPC exposes open state to active members without private draft IDs.
+  const editStates = await Promise.all(expenses.map(async (expense) => ({
+    expenseId: expense.id,
+    state: await getExpenseEditRevisionState(actorUserId, expense.id),
+  })))
+  if (editStates.some(({ state }) => state.status === 'unavailable')) {
+    throwOnError(new Error('expense_edit_state_unavailable'), 'edit revision state RPC')
+  }
   const editingExpenseIds = new Set(
-    ((editBindingsResult.data ?? []) as EditBindingRow[]).map((row) => row.expense_id),
+    editStates.filter(({ state }) => state.status === 'open').map(({ expenseId }) => expenseId),
   )
   const repayments = (repaymentsResult.data ?? []) as RepaymentRow[]
   const expenseIds = expenses.map((row) => row.id)
