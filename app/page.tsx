@@ -16,6 +16,9 @@ function publicReadyCardHref(slug: string): string {
     return getWeatherEnabledMode() === 'all' ? '/vedrid' : '/innskraning'
   }
   if (slug === 'umonnun') return '/umonnun'
+  if (slug === 'splitta-reikningnum') {
+    return '/innskraning?next=%2Fauth-mvp%2Fsplitta-reikningnum'
+  }
   return '/innskraning'
 }
 
@@ -67,7 +70,11 @@ export default async function Home() {
                 idea={idea}
                 href={publicReadyCardHref(idea.slug)}
                 openLabel={t('home.readyTeskeidOpen')}
-                descriptionOverride={idea.slug === 'vedrid' ? t('home.weatherCardDescription') : undefined}
+                descriptionOverride={idea.slug === 'vedrid'
+                  ? t('home.weatherCardDescription')
+                  : idea.slug === 'splitta-reikningnum'
+                    ? t('home.receiptSplitCardDescription')
+                    : undefined}
               />
             ))}
           </div>

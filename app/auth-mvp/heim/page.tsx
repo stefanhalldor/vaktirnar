@@ -196,6 +196,8 @@ export default async function HeimPage() {
                     titleOverride={idea.slug === 'bokhaldid' ? t('bookkeepingCardTitle') : undefined}
                     descriptionOverride={idea.slug === 'vedrid'
                       ? t('weatherCardDescription')
+                      : idea.slug === 'splitta-reikningnum'
+                        ? t('receiptSplitCardDescription')
                       : idea.slug === 'bokhaldid'
                         ? t('bookkeepingCardDescription')
                         : undefined}

@@ -9,6 +9,7 @@ import { mutationSchema, type SplitResult } from './contracts'
 import { parseSplitExtractionV2, parseSplitExtractionV2Text, splitEditV2Schema } from './contracts-v2'
 import { SPLIT_BUCKET, SPLIT_PATH, readSplit, splitUser } from './server'
 import { readLegacyReceiptLines } from './legacy.server'
+import { finishReceiptAiQuota, reserveReceiptAiQuota } from './ai-quota.server'
 
 const commandResult = z.object({
   id: z.string().uuid(), path: z.string().nullable().optional(),
@@ -38,6 +39,8 @@ function failure(error: unknown): SplitResult<never> {
   if (error instanceof z.ZodError || error instanceof SyntaxError) return { ok: false, error: 'invalid' }
   if (error instanceof Error && /split_invalid|expense_receipt_manual_extraction_invalid/.test(error.message)) return { ok: false, error: 'invalid' }
   if (error instanceof Error && /split_conflict|split_total_mismatch|split_upgrade_required|split_quantity_claimed|split_return_claims_first/.test(error.message)) return { ok: false, error: 'conflict' }
+  if (error instanceof Error && /receipt_ai_quota_daily/.test(error.message)) return { ok: false, error: 'quota' }
+  if (error instanceof Error && /receipt_ai_quota_(capacity|burst)/.test(error.message)) return { ok: false, error: 'capacity' }
   return { ok: false, error: 'failed' }
 }
 const lifecycleV2Schema = z.discriminatedUnion('command', [
@@ -155,7 +158,18 @@ export async function extractSplitImage(id: string): Promise<SplitResult<{ id: s
     if (blob.error || !blob.data) throw new Error('split_image_missing')
     const bytes = new Uint8Array(await blob.data.arrayBuffer())
     verifyExpenseReceiptImage(bytes, target.mime, target.size)
-    const extraction = await extractExpenseReceipt(bytes, target.mime)
+    const quota = await reserveReceiptAiQuota(user.id, id)
+    if (!quota.allowed) throw new Error('receipt_ai_quota_' + quota.reason)
+    if (!quota.reservationId) throw new Error('receipt_ai_quota_unavailable')
+    let extraction
+    try {
+      extraction = await extractExpenseReceipt(bytes, target.mime)
+    } finally {
+      // The reservation already counts toward cost even if closing its short
+      // concurrency lease fails. Never discard a valid provider result here;
+      // an unfinished lease expires from the active check after two minutes.
+      await finishReceiptAiQuota(user.id, quota.reservationId).catch(() => undefined)
+    }
     const result = await commandV2(user.id, 'apply_extraction', randomUUID(), id, { extraction: parseSplitExtractionV2(extraction) })
     refresh(id)
     return { ok: true, data: { id: result.id } }

@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), user: vi.fn(), read: vi.fn(), storage: vi.fn(), provider: vi.fn(), legacy: vi.fn() }))
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), user: vi.fn(), read: vi.fn(), storage: vi.fn(), provider: vi.fn(), legacy: vi.fn(), quota: vi.fn(), finish: vi.fn() }))
 vi.mock('@/lib/receipt-split/legacy.server', () => ({ readLegacyReceiptLines: mocks.legacy }))
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/receipt-split/server', () => ({ splitUser: mocks.user, readSplit: mocks.read, SPLIT_PATH: '/auth-mvp/splitta-reikningnum', SPLIT_BUCKET: 'bill-split-receipts' }))
+vi.mock('@/lib/receipt-split/ai-quota.server', () => ({ reserveReceiptAiQuota: mocks.quota, finishReceiptAiQuota: mocks.finish }))
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: () => ({ rpc: mocks.rpc, storage: { from: mocks.storage } }) }))
 vi.mock('@/lib/expenses/receipt-split.server', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/expenses/receipt-split.server')>()
@@ -21,6 +22,8 @@ beforeEach(() => {
   mocks.user.mockResolvedValue({ id: actor })
   mocks.rpc.mockResolvedValue({ data: { id }, error: null })
   mocks.read.mockResolvedValue({ id, isOwner: true, state: 'review', version: 4 })
+  mocks.quota.mockResolvedValue({ allowed: true, reason: 'reserved', exempt: false, reservationId: requestId })
+  mocks.finish.mockResolvedValue(undefined)
 })
 describe('standalone action boundary', () => {
   it('binds an added shared item to the signed-in actor and the append-only RPC', async () => {
@@ -90,6 +93,27 @@ describe('standalone action boundary', () => {
     expect((await extractSplitImage(id)).ok).toBe(false)
     expect(mocks.provider).not.toHaveBeenCalled()
     expect(mocks.storage).not.toHaveBeenCalled()
+    expect(mocks.quota).not.toHaveBeenCalled()
+  })
+  it('reserves cost quota after image validation and before provider work', async () => {
+    mocks.rpc.mockResolvedValue({ data: { id, path: actor + '/' + id, mime: 'image/jpeg', size: 3 }, error: null })
+    mocks.storage.mockReturnValue({ download: vi.fn().mockResolvedValue({
+      data: new Blob([new Uint8Array([0xff, 0xd8, 0xff])]), error: null,
+    }) })
+    mocks.provider.mockResolvedValue(extraction)
+    expect((await extractSplitImage(id)).ok).toBe(true)
+    expect(mocks.quota).toHaveBeenCalledWith(actor, id)
+    expect(mocks.provider).toHaveBeenCalledOnce()
+    expect(mocks.quota.mock.invocationCallOrder[0]).toBeLessThan(mocks.provider.mock.invocationCallOrder[0])
+  })
+  it('never calls the provider after the daily quota is refused', async () => {
+    mocks.rpc.mockResolvedValue({ data: { id, path: actor + '/' + id, mime: 'image/jpeg', size: 3 }, error: null })
+    mocks.storage.mockReturnValue({ download: vi.fn().mockResolvedValue({
+      data: new Blob([new Uint8Array([0xff, 0xd8, 0xff])]), error: null,
+    }) })
+    mocks.quota.mockResolvedValue({ allowed: false, reason: 'daily', exempt: false, reservationId: null })
+    expect(await extractSplitImage(id)).toEqual({ ok: false, error: 'quota' })
+    expect(mocks.provider).not.toHaveBeenCalled()
   })
   it('does not complete deletion while storage removal has failed', async () => {
     const remove = vi.fn().mockResolvedValue({ error: { message: 'offline' } })

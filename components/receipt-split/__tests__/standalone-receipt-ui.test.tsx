@@ -34,6 +34,32 @@ beforeEach(() => {
   history.replaceState({}, '', '/')
 })
 describe('standalone receipt UI', () => {
+  it('presents Teskeið and another AI app as two separate import options', () => {
+    render(<SplitImport />)
+    expect(screen.getByRole('heading', { name: 'teskeidMethod' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'otherAiMethod' })).toBeInTheDocument()
+    expect(screen.getByText('methodOne')).toBeInTheDocument()
+    expect(screen.getByText('methodTwo')).toBeInTheDocument()
+  })
+  it('promotes each import action only when its own input is ready', () => {
+    render(<SplitImport />)
+    const imageAction = screen.getByRole('button', { name: 'image' })
+    const jsonAction = screen.getByRole('button', { name: 'create' })
+    expect(imageAction).toBeDisabled()
+    expect(imageAction).toHaveClass('bg-background')
+    expect(jsonAction).toBeDisabled()
+    expect(jsonAction).toHaveClass('bg-background')
+
+    fireEvent.change(screen.getByLabelText('image'), {
+      target: { files: [new File(['receipt'], 'receipt.jpg', { type: 'image/jpeg' })] },
+    })
+    expect(imageAction).toBeEnabled()
+    expect(imageAction).toHaveClass('bg-primary')
+
+    fireEvent.change(screen.getByLabelText('json'), { target: { value: '{"title":"Coffee"}' } })
+    expect(jsonAction).toBeEnabled()
+    expect(jsonAction).toHaveClass('bg-primary')
+  })
   it('adds a missing line in review without changing the receipt total', async () => {
     render(<SplitBoard view={{ ...view, state: 'review', isOwner: true, claims: [], totalMinor: 2000 }} />)
     fireEvent.click(screen.getByRole('button', { name: 'addItem' }))
@@ -116,6 +142,20 @@ describe('standalone receipt UI', () => {
     expect(screen.getByRole('status', { name: 'analyzingLabel' })).toBeInTheDocument()
     finishExtraction?.({ ok: true, data: { id } })
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(expect.stringMatching(/^\/auth-mvp\/splitta-reikningnum\//)))
+  })
+  it('routes an exhausted daily allowance to the saved split and recommends option two', async () => {
+    mocks.extract.mockResolvedValue({ ok: false, error: 'quota' })
+    const first = render(<SplitImport />)
+    const file = new File(['receipt'], 'receipt.jpg', { type: 'image/jpeg' })
+    fireEvent.change(screen.getByLabelText('image'), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: 'image' }))
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/auth-mvp\/splitta-reikningnum\/.*\?reason=quota$/),
+    ))
+    first.unmount()
+    render(<SplitImport id={id} recoveryReason="quota" />)
+    expect(screen.getByText('quotaRecovery')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'copyPrompt' })).toBeInTheDocument()
   })
   it('keeps JSON and reuses request IDs after a failed response', async () => {
     mocks.mutate.mockResolvedValue({ ok: false, error: 'failed' })

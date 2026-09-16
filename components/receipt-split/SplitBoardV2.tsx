@@ -18,7 +18,7 @@ type Item = SplitViewV2['items'][number]
 type Group = 'remaining' | 'done' | 'info'
 type Command = { command: string; id: string; [key: string]: unknown }
 
-export function SplitBoardV2({ view }: { view: SplitViewV2 }) {
+export function SplitBoardV2({ view, recoveryReason }: { view: SplitViewV2; recoveryReason?: 'quota' | 'capacity' }) {
   const t = useTranslations('teskeid.receiptSplit'); const pv = useTranslations('teskeid.receiptSplitPreview')
   const locale = useLocale(); const router = useRouter(); const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null); const [selected, setSelected] = useState<string[]>([])
@@ -40,7 +40,7 @@ export function SplitBoardV2({ view }: { view: SplitViewV2 }) {
     })
   }
   if (view.deleteScope) return <button className={danger + ' w-full'} disabled={pending} onClick={() => run({ command: view.deleteScope === 'split' ? 'delete' : 'delete_image', id: view.id, version: view.version })}>{t('retryDelete')}</button>
-  if (view.state === 'uploading' || view.state === 'extracting') return <SplitImport id={view.id} />
+  if (view.state === 'uploading' || view.state === 'extracting') return <SplitImport id={view.id} recoveryReason={recoveryReason} />
   const classify = (item: Item): Group => item.kind !== 'item' || item.totalMinor === 0 ? 'info' : (summary.remaining.get(item.id) ?? 0) === 0 ? 'done' : 'remaining'
   const groups: Record<Group, Item[]> = { remaining: [], done: [], info: [] }
   for (const item of view.items) groups[locks[item.id] ?? classify(item)].push(item)
@@ -48,13 +48,18 @@ export function SplitBoardV2({ view }: { view: SplitViewV2 }) {
   const row = (item: Item) => view.state === 'review'
     ? <ReviewItemRow key={item.id} item={item} view={view} pending={pending} run={run} />
     : <ItemRow key={item.id} item={item} view={view} summary={summary} selected={selected} pending={pending} money={money} run={run} lock={lock} />
+  const totalsDiffer = summary.receiptDifferenceMinor !== BigInt(0)
+  const confirmReview = () => <section className={totalsDiffer ? 'space-y-3 rounded-2xl border border-border p-4' : ''}>{totalsDiffer && <p className="text-sm text-muted-foreground">{pv('reviewHelp')}</p>}
+    <button className={primary + ' w-full'} disabled={pending} onClick={() => run(
+      { command: 'confirm_review', id: view.id, version: view.version },
+      () => window.scrollTo({ top: 0, behavior: 'smooth' }),
+    )}>{t('confirm')}</button></section>
   return <div className="space-y-6" aria-busy={pending}>
     <header><h2 className="break-words text-xl font-semibold">{view.title}</h2></header>
     <section className="space-y-3 rounded-2xl border border-border p-4"><h3 className="font-semibold">{pv('summary')}</h3>
       <dl className="space-y-2 text-sm">{view.isOwner && view.state === 'review' ? <div className="space-y-2"><dt>{pv('receiptTotal')}</dt><ReviewTotalEditor view={view} pending={pending} run={run} /></div> : <div className="flex justify-between"><dt>{pv('receiptTotal')}</dt><dd>{money(view.receiptTotalMinor)}</dd></div>}
         <div className="flex justify-between"><dt>{pv('linesTotal')}</dt><dd>{money(summary.linesTotalMinor)}</dd></div></dl>
-      <p className="rounded-lg border border-border p-3 text-sm" aria-live="polite">{summary.receiptDifferenceMinor === BigInt(0) ? pv('matched')
-        : pv(summary.receiptDifferenceMinor > BigInt(0) ? 'missing' : 'excess', { amount: money(summary.receiptDifferenceMinor < BigInt(0) ? -summary.receiptDifferenceMinor : summary.receiptDifferenceMinor) })}</p>
+      {totalsDiffer && <p className="rounded-lg border border-border p-3 text-sm" aria-live="polite">{pv(summary.receiptDifferenceMinor > BigInt(0) ? 'missing' : 'excess', { amount: money(summary.receiptDifferenceMinor < BigInt(0) ? -summary.receiptDifferenceMinor : summary.receiptDifferenceMinor) })}</p>}
       {view.isOwner && view.state === 'sharing' && <TotalEditor view={view} pending={pending} run={run} />}</section>
     {view.isOwner && view.state === 'sharing' && <Share view={view} pending={pending} origin={origin} copied={copied} run={run} onCopy={async () => {
       try { await navigator.clipboard.writeText(location.origin + '/splitt#' + view.inviteToken); setCopied(true) } catch { setError(t('failed')) }
@@ -63,14 +68,14 @@ export function SplitBoardV2({ view }: { view: SplitViewV2 }) {
       <TeskeidMultiSelectPillFilter options={view.members.map(m => ({ id: m.token, label: (m.name ?? t('unnamed')) + ' · ' + money(summary.totals.get(m.token) ?? BigInt(0)), disabled: pending }))}
         selectedIds={selected} onChange={setSelected} ariaLabel={t('people')} clearLabel={t('clear')} />
       <p className="text-sm text-muted-foreground">{t('unclaimed')}: {money(summary.totals.get(UNSPLIT_V2) ?? BigInt(0))}</p></section>}
+    {view.state === 'review' && view.isOwner && confirmReview()}
     {view.state === 'review' ? <section className="space-y-3"><h3 className="font-semibold">{pv('reviewItems')}</h3>{view.items.map(row)}</section>
       : selected.length ? <section className="space-y-3"><h3 className="font-semibold">{pv('selectedItems')}</h3>{filtered.length ? filtered.map(row) : <p>{pv('emptyFilter')}</p>}</section> : <>
       <section className="space-y-3"><h3 className="font-semibold">{pv('remainingTitle')}</h3>{groups.remaining.length ? groups.remaining.map(row) : <p>{pv('allChosen')}</p>}{groups.info.map(row)}</section>
       <section className="rounded-2xl border border-border"><button className="flex min-h-11 w-full items-center justify-between p-4 font-semibold" aria-expanded={doneOpen} onClick={() => setDoneOpen(!doneOpen)}>{pv('doneTitle', { count: groups.done.length })}<ChevronDown aria-hidden size={18} className={doneOpen ? 'rotate-180' : ''} /></button>
         {doneOpen && <div className="space-y-3 border-t border-border p-4">{groups.done.length ? groups.done.map(row) : <p>{pv('emptyDone')}</p>}</div>}</section></>}
     {view.isOwner && <AddItem view={view} pending={pending} run={run} />}
-    {view.state === 'review' && view.isOwner && <section className="space-y-3 rounded-2xl border border-border p-4"><p className="text-sm text-muted-foreground">{pv('reviewHelp')}</p>
-      <button className={primary + ' w-full'} disabled={pending} onClick={() => run({ command: 'confirm_review', id: view.id, version: view.version })}>{t('confirm')}</button></section>}
+    {view.state === 'review' && view.isOwner && confirmReview()}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}{pending && <p role="status">{t('pending')}</p>}
     <button className={secondary + ' w-full'} disabled={pending} onClick={() => router.refresh()}>{t('refresh')}</button>
     {view.isOwner && <DangerZone view={view} pending={pending} run={run} />}

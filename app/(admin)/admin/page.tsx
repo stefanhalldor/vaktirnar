@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/teskeid/StatusBadge'
 import { resolveInitialPeriod } from '@/lib/admin/period'
 import { MapFeedbackAdminSection } from '@/components/teskeid/MapFeedbackAdminSection'
 import { RoadGraphAdminSection } from '@/components/teskeid/RoadGraphAdminSection'
+import { ReceiptAiQuotaAdminSection } from '@/components/admin/ReceiptAiQuotaAdminSection'
 
 type IdeaStatus = Idea['status']
 type SubmissionStatus = Submission['status']
@@ -1667,6 +1668,9 @@ export default function AdminPage() {
         <div className="mt-6">
           <RoadGraphAdminSection />
         </div>
+
+        <hr className="border-[#c2c9bb] my-8" />
+        <ReceiptAiQuotaAdminSection />
 
         <hr className="border-[#c2c9bb] my-8" />
         <div className="flex flex-col gap-6">

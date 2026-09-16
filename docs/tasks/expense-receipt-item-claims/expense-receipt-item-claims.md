@@ -2,10 +2,12 @@
 
 - GoLive external ID: `expense-receipt-item-claims`
 - GoLive issue: `516ec885-9521-4d84-8350-9219ac829695`
+- GoLive follow-up external ID: `expense-receipt-ai-daily-quota`
+- GoLive follow-up issue: `bb87bed9-003a-459a-8cb8-f44e3884c9fa` (subtask of `expense-receipt-item-claims`)
 - Project: Vaktirnar, `1bb6e3fa-ab25-48c0-a806-342465ee5ded`
 - Candidate: `C:\Users\Lenovo\AppData\Local\Temp\teskeid-task-expense-receipt-item-claims-20260913-v2`
 - Base: `57a57d33c093a89ef38dd087acfa2b789897435d`
-- Latest handoff: [SQL184 exact og live v2 localhost-candidate](handoffs/2026-09-16-0750-v037-codex-live-v2-localhost.md)
+- Latest handoff: [SQL185 exact og release-gátt opin](handoffs/2026-09-16-1708-v054-codex-sql185-exact-release-gate.md)
 - GoLive er authoritative um status, priority og ownership. Þetta skjal geymir scope, ákvarðanir og evidence.
 
 ## Markmið og samþykkt kjarnaupplifun
@@ -45,8 +47,14 @@ Samþykktur samningur sem kemur í stað fyrri tillagna þar sem þær stangast 
   þátttakendur og Eftir/Búið birtast fyrst eftir að skipting hefur hafist.
 
 **Útfært nú:** SQL184 er exact uppsett og live standalone detail/create/image/
-join flæði notar v2 boundary. SQL-frír sýnigagnaskjár er áfram tiltækur á
-`/preview/splitt-v032`; innskráð localhost-prófun er núverandi gate.
+join flæði notar v2 boundary. Teskeiðin er opin í kynningu og sýnileg óinnskráðum
+á forsíðunni, en innskráning með staðfestum Teskeiðarnotanda er áfram skilyrði
+fyrir notkun. Lokaða-prófunarborðinn á ekki við. Upphafsskjárinn aðgreinir
+myndgreiningu Teskeiðar og aðra gervigreind sem tvær sýnilegar leiðir.
+`Reikningarnir mínir` birtist aðeins þegar innskráður notandi á aðgang að a.m.k.
+einu splitti í `sharing` stöðu; review/uploading/extracting/deleting birtast ekki
+í þeirri valmynd. SQL-frír sýnigagnaskjár er áfram tiltækur á
+`/preview/splitt-v032`; localhost UI-prófun er núverandi gate.
 
 Fólk á að geta splittað reikningi án þess að vita að Útlagt og endurgreitt
 (ÚL) sé til. Splittið er sjálfstætt samstarfsflæði; það stofnar ekki sjálfkrafa
@@ -111,6 +119,25 @@ skuldir eða færir reikning í ÚL.
 - Ekki veikja núverandi Expense-grants/auth eða veita gesti ÚL-aðgang til að
   koma sjálfstæðu splitti í gegnum eldri kerfishluta.
 
+## Myndgreiningarkvóti og kostnaðarvörn
+
+- Venjulegur staðfestur Teskeiðarnotandi fær eina mögulega gjaldfærða
+  myndgreiningu á íslenskan almanaksdag.
+- Skráargerð, stærð, raunverulegt MIME og eigendaaðgangur eru sannreynd áður en
+  kvóti er tekinn. Kvóti er tekinn atomically rétt áður en provider-kall hefst.
+- Tilraun telst notuð þótt mynd sé ólæsileg, provider skili villu eða svarið sé
+  ógilt. Engin sjálfvirk endurgreiðsla fer fram eftir að provider-vinna hefst.
+- UI sýnir ekki neikvæðan fyrirvara fyrirfram. Eftir misheppnaða/uppurna
+  tilraun er notanda bent á Leið 2 og að sama mynd geti dugað þar, annars nýja
+  mynd í betri birtu.
+- Admin getur leitað að staðfestum notanda eftir netfangi og veitt/afturkallað
+  undanþágu. Undanþága bindst `auth.users.id`, með netfang sem admin-framsetningu.
+- Undanþága fer aðeins fram hjá eins-skiptis dagskvóta. Einn virkur lease,
+  hámark 5 köll á mínútu sjálfgefið og sameiginlegt daglegt neyðarþak 100 köll
+  sjálfgefið gilda áfram. Server env má lækka/hækka innan harðra marka.
+- SQL185 geymir private forced-RLS usage/audit og undanþágur. Engin client policy
+  eða ÚL-entitlement tenging er leyfð. Stebbi keyrir SQL handvirkt.
+
 ## Aðgangur: ákvörðun Stebba 2026-09-15
 
 Viðtakandi deilihlekks **verður að skrá sig inn með Teskeiðarnotanda**.
@@ -155,9 +182,11 @@ framkvæmdarleyfis. Handvirk SQL-keyrsla Stebba er áfram sérstök gátt.
 
 ## Current gate og candidate-staða
 
-**Current gate: innskráð localhost-prófun á live v2 flæðinu.** UI-gátt er græn:
-Stebbi sagði 2026-09-16 „Þetta er mun betra svona“. SQL-fríi skjárinn er áfram
-á http://localhost:3004/preview/splitt-v032 með sýnigögnum í minni.
+**Current gate: loka release-próf og production deployment.** SQL185 postflight
+er actual `operator_state=EXACT_INSTALLED`; `tables_ok`, `no_client_policies`,
+`functions_ok` og `constraints_ok` eru öll `true`. Handvirka SQL-gáttin er lokuð.
+Ekki endurkeyra SQL185 migration eða postflight. Stebbi hefur heimilað commit,
+push og production-útgáfu á núverandi candidate eftir græn loka release-próf.
 
 Versioned JSON/session/view contracts, BigInt summary, prepared service boundary,
 application/server cutover scope og SQL184 migration/preflight/postflight eru nú
@@ -185,7 +214,7 @@ Meðan ný kvittun er undirbúin, hlaðin upp og myndgreind sýnir innlestrarskj
 canonical `TeskeidLoader`. Hann helst sýnilegur þar til vistaða splittið tekur
 við; ef undirbúningur eða upphleðsla bregst kemur formið aftur með villu.
 
-**NEI — EKKI KEYRA MEIRA SQL NÚNA.**
+SQL182/183/184/185 eru lokuð og má ekki endurkeyra.
 
 Final candidate evidence v034: 304 próf í 23 skrám PASS, type-check og afmarkað
 lint PASS. Endanleg SQL/PLpgSQL parse: 50 migration statements/14 bodies og tvær
@@ -408,3 +437,55 @@ og Vercel deployment `dpl_41yuSzha8EXLNCobPTMxvMirVBUH` varð `Ready` með
 production aliases, þar á meðal `teskeid.is`. Engin migration var keyrð og engum
 Vercel env-breytum var breytt. AI-myndgreining virkjar Stebbi sérstaklega með
 `EXPENSE_RECEIPT_AI_ENABLED`, `ANTHROPIC_API_KEY` og `EXPENSE_RECEIPT_MODEL`.
+v043 fjarlægir lokaða-prófunarborðann og skilgreinir Teskeiðina sem opna í
+kynningu en innskráningarskylda í notkun. Opinber kort og hugmyndasíða varðveita
+áfangastað gegnum innskráningu. Upphafsskjárinn aðgreinir innbyggða myndgreiningu
+og annað gervigreindarapp í tvö kort. `Reikningarnir mínir` sýnir aðeins virk
+sharing-splitt og er falin þegar engin eru. 150 focused próf og type-check PASS;
+ekkert SQL, commit, push eða deploy var framkvæmt.
+v044 bætir við atomískum Reykjavíkur-dagskvóta rétt fyrir provider-kall,
+sameiginlegu kostnaðarþaki, tímabundnum one-at-a-time lease og takmörkuðum
+admin-undanþágum bundnum `user_id`. Admin UI/API og quota-recovery yfir í Leið 2
+eru útfærð. SQL185 migration, preflight og postflight eru skrifuð en ókeyrð.
+42 focused próf, type-check og scoped lint PASS. GoLive follow-up
+`expense-receipt-ai-daily-quota` var stofnaður í Vaktirnar með repository-bound
+Codex-tengingunni sem undirliður aðalmiðans; issue ID er
+`bb87bed9-003a-459a-8cb8-f44e3884c9fa`.
+v045 skráir actual SQL185 preflight frá Stebba sem `READY` með öllum fjórum
+boolean-gildum true. Migration-hash er
+`01866F506B405308222CD7AC695A79D2E1F5577402283E3F2DD4EC31932DF954` og
+SQL185 migrationin ein er næsta handvirka gátt; postflight bíður migration-
+niðurstöðu.
+v046 skráir actual migration `Success. No rows returned` úr skjámynd Stebba og
+óbreytt migration/postflight hash. Migrationina má ekki endurkeyra. Read-only
+SQL185 postflight er næsta og eina handvirka gáttin.
+v047 bætir fail-safe reglu fremst í afrituðu Leið 2 fyrirspurnina á íslensku og
+ensku: fylgi engin mynd á gervigreindin að taka við fyrirmælunum, biðja um mynd
+af reikningnum og hvorki búa til JSON né giska. Með mynd er JSON-samningurinn
+óbreyttur. Focused contract-próf eru 9/9 PASS. SQL185 postflight-gáttin er óbreytt.
+v048 birtir sama „Staðfesta og fara í skiptingu“ primary action bæði fyrir ofan
+fyrsta kvittunarlið og fyrir neðan síðasta lið. Eftir farsæla staðfestingu
+scrollar skjárinn mjúklega efst áður en gögnin endurhlaðast; villur færa ekki
+notandann. UI-próf 13/13, type-check og scoped lint PASS. SQL185 postflight-gáttin
+er áfram óbreytt.
+v049 leiðréttir raunverulega v2-skjáinn eftir localhost evidence Stebba. Mynda-
+og JSON-aðgerðir byrja hvítar og óvirkar og verða grænar þegar gild mynd eða
+texti er til staðar. `SplitBoardV2` sýnir staðfestinguna beint fyrir ofan „Liðir
+á kvittun“ og aftur eftir „Bæta við lið“; báðir takkar scrolla efst eftir success.
+Focused UI-próf 21/21, type-check og scoped lint PASS. SQL185 postflight er óbreytt.
+v050 felur matched-total staðfestingartexta bæði í Reikningurinn-boxinu og við
+báða confirm-takka þegar línusumma stemmir. Við mismun birtist áfram nákvæm
+upphæð í samantekt og reviewHelp við báða takka. Focused v2 UI 7/7 og lint PASS.
+v051 breytir takkaheitinu „Vista kvittunarheild“ í „Uppfæra fjárhæð reiknings“
+og ensku í „Update bill amount“. Engin virkni breyttist; locale parse og v2 UI
+7/7 PASS. SQL185 postflight-gáttin er óbreytt.
+v052 fjarlægir border/padding-kassann utan um báða confirm-takkana þegar heildir
+stemma. Í mismatch state helst kassinn með reviewHelp. Focused v2 UI 7/7 og lint
+PASS; SQL185 postflight-gáttin er óbreytt.
+v053 skýrir mismatch-hjálpartextann: heildarfjárhæð liða má víkja frá heild
+reiknings og eftir að skipting hefst má bæta við liðum og/eða breyta fjárhæðum.
+Íslenska/enska parse og focused v2 UI 7/7 PASS; birtingarskilyrði eru óbreytt.
+v054 skráir actual SQL185 postflight sem `EXACT_INSTALLED` með
+`tables_ok`, `no_client_policies`, `functions_ok` og `constraints_ok` öll true.
+SQL-gáttin er lokuð og candidate fer í loka release-próf samkvæmt sérstöku
+commit/push/production-leyfi Stebba.

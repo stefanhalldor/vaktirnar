@@ -14,7 +14,11 @@ const view: SplitViewV2 = { id, contractVersion: 2, quantityScale: 3000, sourceC
   members: [{ token: self, name: 'Anna', isSelf: true }],
   items: [{ id, kind: 'item', description: 'Wine', originalDescription: 'Wine', explanation: 'Red wine bottle', explanationNeedsReview: false,
     quantityUnits: 3000, itemRevision: 1, totalMinor: 1000 }], claims: [] }
-beforeEach(() => { vi.clearAllMocks(); mocks.mutate.mockResolvedValue({ ok: true, data: { id } }) })
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.mutate.mockResolvedValue({ ok: true, data: { id } })
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
+})
 describe('live standalone v2 board', () => {
   it('shows separate reference/line totals and sends an exact half claim', async () => {
     render(<SplitBoardV2 view={view} />)
@@ -34,11 +38,34 @@ describe('live standalone v2 board', () => {
   })
   it('saves the review while confirming even when it was not saved separately', async () => {
     render(<SplitBoardV2 view={{ ...view, state: 'review', reviewSaved: false, inviteToken: null }} />)
-    const confirm = screen.getByRole('button', { name: 'confirm' })
-    expect(confirm).toBeEnabled()
+    const confirms = screen.getAllByRole('button', { name: 'confirm' })
+    const itemsHeading = screen.getByText('reviewItems')
+    const addItem = screen.getByRole('button', { name: 'add' })
+    expect(confirms).toHaveLength(2)
+    expect(confirms[0].compareDocumentPosition(itemsHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(confirms[1].compareDocumentPosition(addItem) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+    expect(confirms[0]).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'save' })).not.toBeInTheDocument()
-    fireEvent.click(confirm)
+    fireEvent.click(confirms[0])
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ command: 'confirm_review', version: 3 })))
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
+  })
+  it('hides matched-total copy but keeps mismatch guidance and amount visible', () => {
+    const matched = { ...view, state: 'review' as const, inviteToken: null, receiptTotalMinor: 1000 }
+    const { rerender } = render(<SplitBoardV2 view={matched} />)
+    expect(screen.queryByText('matched')).not.toBeInTheDocument()
+    expect(screen.queryByText('reviewHelp')).not.toBeInTheDocument()
+    for (const confirm of screen.getAllByRole('button', { name: 'confirm' })) {
+      expect(confirm.closest('section')).not.toHaveClass('border')
+      expect(confirm.closest('section')).not.toHaveClass('p-4')
+    }
+
+    rerender(<SplitBoardV2 view={{ ...matched, receiptTotalMinor: 2000 }} />)
+    expect(screen.getByText(/missing EUR 10/)).toBeInTheDocument()
+    expect(screen.getAllByText('reviewHelp')).toHaveLength(2)
+    for (const confirm of screen.getAllByRole('button', { name: 'confirm' })) {
+      expect(confirm.closest('section')).toHaveClass('border', 'p-4')
+    }
   })
   it('edits the receipt total inline during review and keeps the sharing toggle', () => {
     const { rerender } = render(<SplitBoardV2 view={{ ...view, state: 'review', inviteToken: null }} />)

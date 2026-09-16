@@ -39,7 +39,7 @@ export const mutationSchema = z.discriminatedUnion('command', [
 ])
 export type SplitMutation = z.infer<typeof mutationSchema>
 export type SplitCommand = SplitMutation extends infer T ? T extends SplitMutation ? Omit<T, 'requestId'> : never : never
-export type SplitResult<T> = { ok: true; data: T } | { ok: false; error: 'invalid' | 'conflict' | 'failed' | 'login' }
+export type SplitResult<T> = { ok: true; data: T } | { ok: false; error: 'invalid' | 'conflict' | 'failed' | 'login' | 'quota' | 'capacity' }
 
 export const UNCLAIMED = 'unclaimed'
 /** Include the unclaimed remainder in rounding and adjustments, never charge

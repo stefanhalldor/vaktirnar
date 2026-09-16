@@ -12,10 +12,14 @@ export const dynamic = 'force-dynamic'
 
 export default async function ExpenseReceiptReviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ draftId: string }>
+  searchParams: Promise<{ reason?: string }>
 }) {
   const { draftId } = await params
+  const { reason } = await searchParams
+  const recoveryReason = reason === 'quota' || reason === 'capacity' ? reason : undefined
   if (!z.string().uuid().safeParse(draftId).success) notFound()
   const user = await guardSplit(SPLIT_PATH + '/' + draftId)
   const t = await getTranslations('teskeid.receiptSplit')
@@ -28,9 +32,8 @@ export default async function ExpenseReceiptReviewPage({
       homeLabel={t('home')}
       backHref={SPLIT_PATH}
       backLabel={t('back')}
-      closedTestingFeature="splitta-reikningnum"
     >
-      {receipt ? <SplitBoardV2 view={receipt} /> : <LegacyReceiptCopy id={draftId} version={legacy!.version} />}
+      {receipt ? <SplitBoardV2 view={receipt} recoveryReason={recoveryReason} /> : <LegacyReceiptCopy id={draftId} version={legacy!.version} />}
     </ExpenseShell>
   )
 }

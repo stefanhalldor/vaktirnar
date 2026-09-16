@@ -21,6 +21,7 @@ function publicReadyCardHref(slug: string): string {
     return process.env.WEATHER_ENABLED === 'All' ? '/vedrid' : '/innskraning'
   }
   if (slug === 'umonnun') return '/umonnun'
+  if (slug === 'splitta-reikningnum') return '/innskraning?next=%2Fauth-mvp%2Fsplitta-reikningnum'
   return '/innskraning'
 }
 
@@ -55,6 +56,12 @@ describe('publicReadyCardHref — public landing page routing', () => {
     expect(publicReadyCardHref('umonnun')).toBe('/umonnun')
   })
 
+  it('keeps receipt splitting public while routing use through sign-in', () => {
+    expect(publicReadyCardHref('splitta-reikningnum')).toBe(
+      '/innskraning?next=%2Fauth-mvp%2Fsplitta-reikningnum',
+    )
+  })
+
   it('routes lanad-og-skilad to /innskraning (auth-only)', () => {
     expect(publicReadyCardHref('lanad-og-skilad')).toBe('/innskraning')
   })
@@ -74,6 +81,8 @@ describe('launchedCtaHref — idea detail CTA routing', () => {
     return slug === 'vedrid'
       ? (process.env.WEATHER_ENABLED === 'All' ? '/vedrid' : '/innskraning')
       : slug === 'umonnun' ? '/umonnun'
+      : slug === 'splitta-reikningnum'
+        ? '/innskraning?next=%2Fauth-mvp%2Fsplitta-reikningnum'
       : '/innskraning'
   }
 
@@ -100,6 +109,12 @@ describe('launchedCtaHref — idea detail CTA routing', () => {
 
   it('umonnun detail CTA links to /umonnun', () => {
     expect(launchedCtaHref('umonnun')).toBe('/umonnun')
+  })
+
+  it('receipt split detail CTA preserves the destination through sign-in', () => {
+    expect(launchedCtaHref('splitta-reikningnum')).toBe(
+      '/innskraning?next=%2Fauth-mvp%2Fsplitta-reikningnum',
+    )
   })
 
   it('lanad-og-skilad detail CTA links to /innskraning', () => {

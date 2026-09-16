@@ -60,6 +60,7 @@ describe('closed-testing rollout policy', () => {
     expect(resolveTeskeidFeatureRollout('bokhaldid')).toBe('closed-testing')
     expect(resolveTeskeidFeatureRollout('umonnun')).toBe('open')
     expect(resolveTeskeidFeatureRollout('vedrid')).toBe('open')
+    expect(resolveTeskeidFeatureRollout('splitta-reikningnum')).toBe('open')
     expect(resolveTeskeidFeatureRollout('kviss')).toBe('closed-testing')
     expect(resolveTeskeidFeatureRollout('auglysandi')).toBe('closed-testing')
     expect(resolveTeskeidFeatureRollout('bokanir')).toBe('closed-testing')

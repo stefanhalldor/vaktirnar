@@ -106,6 +106,8 @@ export default async function IdeaPage({
   const launchedCtaHref = presentedIdea.slug === 'vedrid'
     ? (getWeatherEnabledMode() === 'all' ? '/vedrid' : '/innskraning')
     : idea.slug === 'umonnun' ? '/umonnun'
+    : idea.slug === 'splitta-reikningnum'
+      ? '/innskraning?next=%2Fauth-mvp%2Fsplitta-reikningnum'
     : '/innskraning'
 
   return (

@@ -29,9 +29,9 @@ export function resolveTeskeidFeatureRollout(
     case 'lanad-og-skilad':
     case 'umonnun':
     case 'vedrid':
+    case 'splitta-reikningnum':
       return 'open'
     case 'utlagt-og-endurgreitt':
-    case 'splitta-reikningnum':
     case 'afmaeli-og-vidburdir':
     case 'bokhaldid':
     case 'kviss':

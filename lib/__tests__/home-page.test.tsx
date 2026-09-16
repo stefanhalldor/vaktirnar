@@ -61,7 +61,7 @@ vi.mock('next-intl/server', () => ({
         expensesCardTitle: 'Útlagt og endurgreitt',
         expensesCardDescription: 'Haltu utan um sameiginleg útgjöld og endurgreiðslur.',
         receiptSplitCardTitle: 'Splitta reikningnum',
-        receiptSplitCardDescription: 'Myndaðu kvittun og skiptið liðunum á milli ykkar.',
+        receiptSplitCardDescription: 'Taktu mynd af reikningnum og splittaðu honum svo.',
         eventsCardTitle: 'Viðburðir',
         eventsCardDescription: 'Safnaðu gestum og útgjöldum á einum stað.',
         careCardTitle: 'Umönnun',
@@ -453,7 +453,7 @@ function setupGuard(
   const enabled = [
     ['lanad-og-skilad', loansAccess],
     ['utlagt-og-endurgreitt', expensesAccess],
-    ['splitta-reikningnum', process.env.EXPENSE_RECEIPT_AI_ENABLED === 'true' && expensesAccess],
+    ['splitta-reikningnum', process.env.EXPENSE_RECEIPT_AI_ENABLED === 'true'],
     ['afmaeli-og-vidburdir', eventsAccess],
     ['bokhaldid', bookkeepingAccess],
     ['umonnun', umonnunAccess],
@@ -678,7 +678,7 @@ describe('HeimPage — Teskeiðar section', () => {
     expect(screen.queryByTestId('closed-testing-access-request')).not.toBeInTheDocument()
   })
 
-  it('shows Splitta reikningnum as its own Teskeið for an entitled user when receipt AI is enabled', async () => {
+  it('shows Splitta reikningnum as its own Teskeið when receipt AI is enabled', async () => {
     process.env.EXPENSE_RECEIPT_AI_ENABLED = 'true'
     setupGuard(true, false, false, true)
     setupProfile(null)
@@ -688,10 +688,10 @@ describe('HeimPage — Teskeiðar section', () => {
 
     const link = screen.getByRole('link', { name: 'Opna Splitta reikningnum' })
     expect(link).toHaveAttribute('href', '/auth-mvp/splitta-reikningnum')
-    expect(screen.getByText('Myndaðu kvittun og skiptið liðunum á milli ykkar.')).toBeDefined()
+    expect(screen.getByText('Taktu mynd af reikningnum og splittaðu honum svo.')).toBeDefined()
   })
 
-  it('does not expose Splitta reikningnum without Expenses entitlement', async () => {
+  it('shows Splitta reikningnum without Expenses entitlement', async () => {
     process.env.EXPENSE_RECEIPT_AI_ENABLED = 'true'
     setupGuard(true, false, false, false)
     setupProfile(null)
@@ -699,7 +699,10 @@ describe('HeimPage — Teskeiðar section', () => {
 
     render(await HeimPage())
 
-    expect(screen.queryByRole('link', { name: 'Opna Splitta reikningnum' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Opna Splitta reikningnum' })).toHaveAttribute(
+      'href',
+      '/auth-mvp/splitta-reikningnum',
+    )
   })
 
   it('does not expose Splitta reikningnum with entitlement while receipt AI is disabled', async () => {
