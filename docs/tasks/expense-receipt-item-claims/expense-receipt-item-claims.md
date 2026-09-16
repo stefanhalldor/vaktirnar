@@ -7,7 +7,7 @@
 - Project: Vaktirnar, `1bb6e3fa-ab25-48c0-a806-342465ee5ded`
 - Candidate: `C:\Users\Lenovo\AppData\Local\Temp\teskeid-task-expense-receipt-item-claims-20260913-v2`
 - Base: `57a57d33c093a89ef38dd087acfa2b789897435d`
-- Latest handoff: [SQL185 exact og release-gátt opin](handoffs/2026-09-16-1708-v054-codex-sql185-exact-release-gate.md)
+- Latest handoff: [Production release lokið](handoffs/2026-09-16-1718-v055-codex-production-release.md)
 - GoLive er authoritative um status, priority og ownership. Þetta skjal geymir scope, ákvarðanir og evidence.
 
 ## Markmið og samþykkt kjarnaupplifun
@@ -182,11 +182,12 @@ framkvæmdarleyfis. Handvirk SQL-keyrsla Stebba er áfram sérstök gátt.
 
 ## Current gate og candidate-staða
 
-**Current gate: loka release-próf og production deployment.** SQL185 postflight
-er actual `operator_state=EXACT_INSTALLED`; `tables_ok`, `no_client_policies`,
-`functions_ok` og `constraints_ok` eru öll `true`. Handvirka SQL-gáttin er lokuð.
-Ekki endurkeyra SQL185 migration eða postflight. Stebbi hefur heimilað commit,
-push og production-útgáfu á núverandi candidate eftir græn loka release-próf.
+**Current gate: release lokið.** Commit `cb0b05e` er á `main` og Vercel
+production deployment `dpl_7QNHCarYtiYY4F99yidKuCUXd8tP` er `Ready`.
+Canonical `www.teskeid.is` smoke staðfesti 200 á forsíðu og `/splitt`, auk 307
+á innskráningarvarða split-síðu með varðveittu `next`. SQL185 er actual
+`EXACT_INSTALLED` með öllum fjórum gates true og má ekki endurkeyra. Standalone
+Teskeiðin er live; ÚL-tenging er áfram frestað sérscope.
 
 Versioned JSON/session/view contracts, BigInt summary, prepared service boundary,
 application/server cutover scope og SQL184 migration/preflight/postflight eru nú
@@ -489,3 +490,7 @@ v054 skráir actual SQL185 postflight sem `EXACT_INSTALLED` með
 `tables_ok`, `no_client_policies`, `functions_ok` og `constraints_ok` öll true.
 SQL-gáttin er lokuð og candidate fer í loka release-próf samkvæmt sérstöku
 commit/push/production-leyfi Stebba.
+v055 skráir production release: commit `cb0b05e`, Vercel deployment
+`dpl_7QNHCarYtiYY4F99yidKuCUXd8tP` `Ready`, grænt public/auth header-smoke og
+uppfærða GoLive-stöðu. Kvóta-undirliður er `done`; aðalmiði helst opinn vegna
+frestaðrar ÚL-tengingar.
