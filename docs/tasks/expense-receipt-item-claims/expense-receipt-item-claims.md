@@ -9,7 +9,7 @@
 - Project: Vaktirnar, `1bb6e3fa-ab25-48c0-a806-342465ee5ded`
 - Candidate: `C:\Users\Lenovo\AppData\Local\Temp\teskeid-task-expense-receipt-item-claims-20260913-v2`
 - Base: `57a57d33c093a89ef38dd087acfa2b789897435d`
-- Latest handoff: [SQL189 exact og localhost-gátt](handoffs/2026-09-16-2042-v073-codex-sql189-exact-localhost-gate.md)
+- Latest handoff: [Participant controls production release](handoffs/2026-09-16-2058-v074-codex-participant-controls-production-release.md)
 - GoLive er authoritative um status, priority og ownership. Þetta skjal geymir scope, ákvarðanir og evidence.
 
 ## Markmið og samþykkt kjarnaupplifun
@@ -62,7 +62,7 @@ einu splitti í `sharing` stöðu; review/uploading/extracting/deleting birtast 
 í þeirri valmynd. SQL-frír sýnigagnaskjár er áfram tiltækur á
 `/preview/splitt-v032`; localhost UI-prófun er núverandi gate.
 
-**Næsti candidate, SQL186 ókeyrt:** deilihlekkur sýnir reikningsheiti og skýra
+**Útgefið 2026-09-16:** deilihlekkur sýnir reikningsheiti og skýra
 þátttökuspurningu áður en aðild er stofnuð. Óinnskráður notandi fer í innskráningu
 og síðan sjálfkrafa aftur í rétta splittið. Reikningalisti sýnir dagsetningu allra
 sharing-reikninga sem notandinn á eða tekur þátt í. Skiptingarskjárinn hefur
@@ -72,12 +72,15 @@ restina“ og geymir „Ekki mitt“ sérstaklega fyrir hvern notanda. „Ekki m
 ekki sameiginleg staða; útistandandi liður birtist í samanbrotinni skúffu hjá
 þeim notanda einum. Skýringar úr AI-svari birtast undir upprunalegu heiti.
 
-Eigandi getur sýnt QR-kóða sem er búinn til staðbundið úr deilihlekknum, án
+Eigandi getur eytt eigin reikningi úr reikningalistanum. Aðgerðin er varin með
+owner-check, optimistic version og staðfestingarskrefi. Eigandi getur einnig
+sýnt QR-kóða sem er búinn til staðbundið úr deilihlekknum, án
 ytri þjónustu eða kostnaðar. Ef hlekk er snúið breytist QR-kóðinn með honum.
-Efsti reikningsramminn hefur einnig valfrjálsan staðbundinn gengisreikni:
-notandi velur birtingarmynt, slær inn gengi og sér reikningsheild, skráða liði
-og útistandandi fjárhæð í þeirri mynt. Upprunaleg mynt og fjárhæðir eru áfram
-ráðandi; gengið vistast ekki og engin ytri gengisþjónusta er kölluð.
+Efsti reikningsramminn hefur einnig sameiginlegan gengisreikni: þátttakandi
+slær inn frjálsan þriggja stafa myntarkóða og gengi, vistar það á splittið og
+sér fjárhæð hvers þátttakanda í upprunalegri og umreiknaðri mynt. Allir
+þátttakendur mega uppfæra vistuðu gildin með version-vörn. Upprunaleg mynt og
+fjárhæðir eru áfram ráðandi og engin ytri gengisþjónusta er kölluð.
 
 Fólk á að geta splittað reikningi án þess að vita að Útlagt og endurgreitt
 (ÚL) sé til. Splittið er sjálfstætt samstarfsflæði; það stofnar ekki sjálfkrafa
