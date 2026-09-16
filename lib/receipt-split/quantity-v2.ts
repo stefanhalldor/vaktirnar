@@ -62,6 +62,21 @@ export function proportionInput(units: number, totalUnits: number): string {
   return String(basisPoints).replace(/\.0+$/, '') + '%'
 }
 
+/** Return a small, human-readable fraction that normalizes to the stored
+ * quantity. Internal quantity units must never leak into the fraction UI. */
+export function proportionFractionInput(units: number, totalUnits: number): { numerator: string; denominator: string } {
+  if (!Number.isSafeInteger(units) || !Number.isSafeInteger(totalUnits) || units < 0 || totalUnits <= 0 || units > totalUnits)
+    throw new Error('invalid_quantity')
+  if (units === 0) return { numerator: '', denominator: '' }
+  for (let denominator = 1; denominator <= 100; denominator++) {
+    for (let numerator = 1; numerator <= denominator; numerator++) {
+      if (Math.round(numerator * totalUnits / denominator) === units)
+        return { numerator: String(numerator), denominator: String(denominator) }
+    }
+  }
+  return { numerator: '', denominator: '' }
+}
+
 function gcd(a: number, b: number): number {
   while (b) { const next = a % b; a = b; b = next }
   return a

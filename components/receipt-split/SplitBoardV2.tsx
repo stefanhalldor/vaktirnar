@@ -11,7 +11,7 @@ import { mutateSplitV2, openSplitImage, saveSplitExchange, setSplitItemDismissed
 import { parseSplitDecimal, splitDecimal } from '@/lib/receipt-split/contracts'
 import { formatSplitMoney } from '@/lib/receipt-split/format'
 import { convertSplitMoney, formatConvertedMoney } from '@/lib/receipt-split/exchange'
-import { formatQuantity, parseProportionUnits, parseQuantityUnits, proportionInput, quantityInput, stepQuantity } from '@/lib/receipt-split/quantity-v2'
+import { formatQuantity, parseProportionUnits, parseQuantityUnits, proportionFractionInput, proportionInput, quantityInput, stepQuantity } from '@/lib/receipt-split/quantity-v2'
 import { splitSummaryV2, UNSPLIT_V2 } from '@/lib/receipt-split/summary-v2'
 import type { SplitViewV2 } from '@/lib/receipt-split/view-v2'
 import { SplitImport } from './SplitImport'
@@ -196,11 +196,12 @@ function ItemRow({ item, view, summary, selected, displayPart, pending, money, r
   const t = useTranslations('teskeid.receiptSplit'); const pv = useTranslations('teskeid.receiptSplitPreview')
   const self = view.members.find(m => m.isSelf)!; const claims = view.claims.filter(c => c.itemId === item.id); const mine = claims.find(c => c.memberToken === self.token)?.quantityUnits ?? 0
   const left = summary.remaining.get(item.id) ?? 0; const [value, setValue] = useState(quantityInput(mine)); const [proportionMode, setProportionMode] = useState<'percent' | 'fraction'>('percent')
-  const [percent, setPercent] = useState(proportionInput(mine, item.quantityUnits).replace('%', '')); const [numerator, setNumerator] = useState(String(mine)); const [denominator, setDenominator] = useState(String(item.quantityUnits)); const [editing, setEditing] = useState(false)
+  const initialFraction = proportionFractionInput(mine, item.quantityUnits)
+  const [percent, setPercent] = useState(mine === 0 ? '' : proportionInput(mine, item.quantityUnits).replace('%', '')); const [numerator, setNumerator] = useState(initialFraction.numerator); const [denominator, setDenominator] = useState(initialFraction.denominator); const [editing, setEditing] = useState(false)
   const parsed = parseQuantityUnits(value)
   const proportion = proportionMode === 'percent' ? percent + '%' : numerator + '/' + denominator
   const parsedProportion = parseProportionUnits(proportion, item.quantityUnits)
-  useEffect(() => { setValue(quantityInput(mine)); setPercent(proportionInput(mine, item.quantityUnits).replace('%', '')); setNumerator(String(mine)); setDenominator(String(item.quantityUnits)) }, [mine, item.quantityUnits])
+  useEffect(() => { const fraction = proportionFractionInput(mine, item.quantityUnits); setValue(quantityInput(mine)); setPercent(mine === 0 ? '' : proportionInput(mine, item.quantityUnits).replace('%', '')); setNumerator(fraction.numerator); setDenominator(fraction.denominator) }, [mine, item.quantityUnits])
   const save = (units: number) => run({ command: 'claim', id: view.id, contractVersion: 2, quantityScale: 3000, itemId: item.id, itemRevision: item.itemRevision, previousUnits: mine, quantityUnits: units }, () => lock(item.id, null))
   const lineTotals = summary.lineTotals.get(item.id)
   const selectedAmount = selected.reduce((sum, token) => sum + (lineTotals?.get(token) ?? BigInt(0)), BigInt(0))
@@ -221,8 +222,8 @@ function ItemRow({ item, view, summary, selected, displayPart, pending, money, r
             <button type="button" aria-pressed={proportionMode === 'percent'} className={(proportionMode === 'percent' ? primary : secondary) + ' min-h-10'} onClick={() => setProportionMode('percent')}>{pv('percent')}</button>
             <button type="button" aria-pressed={proportionMode === 'fraction'} className={(proportionMode === 'fraction' ? primary : secondary) + ' min-h-10'} onClick={() => setProportionMode('fraction')}>{pv('fraction')}</button>
           </div>
-          {proportionMode === 'percent' ? <span className="flex min-h-11 items-center rounded-xl border border-border bg-background px-3 focus-within:ring-2 focus-within:ring-ring"><input className="min-w-0 flex-1 bg-transparent text-base outline-none" aria-label={pv('myPercentage')} inputMode="decimal" value={percent} onChange={e => setPercent(e.target.value.replace(/[^\d.,]/g, ''))} /><span className="ml-2 shrink-0 text-sm text-muted-foreground">%</span></span>
-            : <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2"><input className={input + ' min-w-0 text-base'} aria-label={pv('fractionNumerator')} inputMode="numeric" value={numerator} onChange={e => setNumerator(e.target.value.replace(/\D/g, ''))} /><span aria-hidden className="text-lg text-muted-foreground">/</span><input className={input + ' min-w-0 text-base'} aria-label={pv('fractionDenominator')} inputMode="numeric" value={denominator} onChange={e => setDenominator(e.target.value.replace(/\D/g, ''))} /></div>}
+          {proportionMode === 'percent' ? <span className="flex min-h-11 items-center rounded-xl border border-border bg-background px-3 focus-within:ring-2 focus-within:ring-ring"><input className="min-w-0 flex-1 bg-transparent text-base outline-none" aria-label={pv('myPercentage')} inputMode="decimal" placeholder="0" value={percent} onFocus={() => { if (percent === '0') setPercent('') }} onChange={e => setPercent(e.target.value.replace(/[^\d.,]/g, ''))} /><span className="ml-2 shrink-0 text-sm text-muted-foreground">%</span></span>
+            : <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2"><input className={input + ' min-w-0 text-base'} aria-label={pv('fractionNumerator')} inputMode="numeric" placeholder="0" value={numerator} onFocus={() => { if (numerator === '0') setNumerator('') }} onChange={e => setNumerator(e.target.value.replace(/\D/g, ''))} /><span aria-hidden className="text-lg text-muted-foreground">/</span><input className={input + ' min-w-0 text-base'} aria-label={pv('fractionDenominator')} inputMode="numeric" placeholder="7" value={denominator} onFocus={() => { if (denominator === '0') setDenominator('') }} onChange={e => setDenominator(e.target.value.replace(/\D/g, ''))} /></div>}
           <button className={secondary + ' w-full'} disabled={pending || parsedProportion === null || parsedProportion > mine + left} onClick={() => parsedProportion !== null && save(parsedProportion)}>{pv('saveProportion')}</button>
         </fieldset>
         {parsedProportion !== null && <p className="text-xs text-muted-foreground">{pv('normalizedProportion', { proportion: proportionInput(parsedProportion, item.quantityUnits), quantity: formatQuantity(parsedProportion) })}</p>}

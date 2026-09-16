@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { parseProportionUnits, proportionInput } from '@/lib/receipt-split/quantity-v2'
+import { parseProportionUnits, proportionFractionInput, proportionInput } from '@/lib/receipt-split/quantity-v2'
 
 describe('receipt split participant controls', () => {
   it('accepts percentages and fractions and exposes normalized rounding', () => {
@@ -11,6 +11,11 @@ describe('receipt split participant controls', () => {
     expect(proportionInput(429, 3000)).toBe('14.3%')
     expect(parseProportionUnits('101%', 3000)).toBeNull()
     expect(parseProportionUnits('1/0', 3000)).toBeNull()
+  })
+  it('uses blank zero-state fields and reconstructs small human fractions', () => {
+    expect(proportionFractionInput(0, 15000)).toEqual({ numerator: '', denominator: '' })
+    expect(proportionFractionInput(1500, 15000)).toEqual({ numerator: '1', denominator: '10' })
+    expect(proportionFractionInput(429, 3000)).toEqual({ numerator: '1', denominator: '7' })
   })
   it('keeps SQL186 private, actor-bound and idempotent', () => {
     const sql = fs.readFileSync(path.join(process.cwd(), 'sql/186_receipt_split_participant_controls.sql'), 'utf8')
