@@ -25,7 +25,7 @@ export function SplitBoardV2({ view, recoveryReason }: { view: SplitViewV2; reco
   const t = useTranslations('teskeid.receiptSplit'); const pv = useTranslations('teskeid.receiptSplitPreview')
   const locale = useLocale(); const router = useRouter(); const [pending, start] = useTransition()
   const [error, setError] = useState<string | null>(null); const [selected, setSelected] = useState<string[]>([])
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('remaining'); const [dismissedOpen, setDismissedOpen] = useState(false)
+  const [statusFilters, setStatusFilters] = useState<StatusFilter[]>([]); const [dismissedOpen, setDismissedOpen] = useState(false)
   const [locks, setLocks] = useState<Record<string, Group>>({})
   const [copied, setCopied] = useState(false); const [origin, setOrigin] = useState('')
   const request = useRef<{ key: string; id: string } | null>(null)
@@ -58,12 +58,20 @@ export function SplitBoardV2({ view, recoveryReason }: { view: SplitViewV2; reco
   for (const item of view.items) groups[locks[item.id] ?? classify(item)].push(item)
   const dismissed = new Set(view.dismissedItemIds)
   const matchesPeople = (item: Item) => !selected.length || view.claims.some(c => c.itemId === item.id && selected.includes(c.memberToken))
-  const statusItems = groups[statusFilter].filter(matchesPeople)
-  const visibleItems = statusFilter === 'remaining' && !selected.length ? statusItems.filter(item => !dismissed.has(item.id)) : statusItems
-  const dismissedItems = statusFilter === 'remaining' && !selected.length ? groups.remaining.filter(item => dismissed.has(item.id)) : []
+  const hasClaims = (item: Item) => view.claims.some(claim => claim.itemId === item.id)
+  const pricedItems = view.items.filter(item => item.kind === 'item' && item.totalMinor > 0)
+  const statusItems = pricedItems.filter(item => {
+    if (!statusFilters.length) return true
+    const currentGroup = locks[item.id] ?? classify(item)
+    return (statusFilters.includes('remaining') && currentGroup === 'remaining')
+      || (statusFilters.includes('done') && (currentGroup === 'done' || hasClaims(item)))
+  }).filter(matchesPeople)
+  const visibleItems = !selected.length ? statusItems.filter(item => !dismissed.has(item.id) || (summary.remaining.get(item.id) ?? 0) === 0) : statusItems
+  const dismissedItems = !selected.length ? groups.remaining.filter(item => dismissed.has(item.id)) : []
+  const displayPart = statusFilters.length === 1 ? statusFilters[0] : 'all'
   const row = (item: Item) => view.state === 'review'
     ? <ReviewItemRow key={item.id} item={item} view={view} pending={pending} run={run} />
-    : <ItemRow key={item.id} item={item} view={view} summary={summary} selected={selected} pending={pending} money={money} run={run} lock={lock} dismiss={dismiss} dismissed={dismissed.has(item.id)} />
+    : <ItemRow key={item.id} item={item} view={view} summary={summary} selected={selected} displayPart={displayPart} pending={pending} money={money} run={run} lock={lock} dismiss={dismiss} dismissed={dismissed.has(item.id)} />
   const totalsDiffer = summary.receiptDifferenceMinor !== BigInt(0)
   const confirmReview = () => <section className={totalsDiffer ? 'space-y-3 rounded-2xl border border-border p-4' : ''}>{totalsDiffer && <p className="text-sm text-muted-foreground">{pv('reviewHelp')}</p>}
     <button className={primary + ' w-full'} disabled={pending} onClick={() => run(
@@ -86,14 +94,14 @@ export function SplitBoardV2({ view, recoveryReason }: { view: SplitViewV2; reco
       <TeskeidMultiSelectPillFilter options={view.members.map(m => ({ id: m.token, label: (m.name ?? t('unnamed')) + ' · ' + money(summary.totals.get(m.token) ?? BigInt(0)), disabled: pending }))}
         selectedIds={selected} onChange={setSelected} ariaLabel={t('people')} clearLabel={t('clear')} />
       <div className="flex flex-wrap gap-2" aria-label={pv('statusFilter')}>
-        <button type="button" aria-pressed={statusFilter === 'remaining'} className={(statusFilter === 'remaining' ? primary : secondary) + ' rounded-full px-4'} onClick={() => setStatusFilter('remaining')}>{pv('outstanding')} · {money(summary.totals.get(UNSPLIT_V2) ?? BigInt(0))}</button>
-        <button type="button" aria-pressed={statusFilter === 'done'} className={(statusFilter === 'done' ? primary : secondary) + ' rounded-full px-4'} onClick={() => setStatusFilter('done')}>{pv('settled')} · {money(summary.linesTotalMinor - (summary.totals.get(UNSPLIT_V2) ?? BigInt(0)))}</button>
+        <button type="button" aria-pressed={statusFilters.includes('remaining')} className={(statusFilters.includes('remaining') ? primary : secondary) + ' rounded-full px-4'} onClick={() => setStatusFilters(current => current.includes('remaining') ? current.filter(value => value !== 'remaining') : [...current, 'remaining'])}>{pv('outstanding')} · {money(summary.totals.get(UNSPLIT_V2) ?? BigInt(0))}</button>
+        <button type="button" aria-pressed={statusFilters.includes('done')} className={(statusFilters.includes('done') ? primary : secondary) + ' rounded-full px-4'} onClick={() => setStatusFilters(current => current.includes('done') ? current.filter(value => value !== 'done') : [...current, 'done'])}>{pv('settled')} · {money(summary.linesTotalMinor - (summary.totals.get(UNSPLIT_V2) ?? BigInt(0)))}</button>
       </div></section>}
     {view.state === 'review' && view.isOwner && confirmReview()}
     {view.state === 'review' ? <section className="space-y-3"><h3 className="font-semibold">{pv('reviewItems')}</h3>{view.items.map(row)}</section>
-      : <><section className="space-y-3"><h3 className="font-semibold">{selected.length ? pv('selectedItems') : pv(statusFilter === 'remaining' ? 'remainingTitle' : 'settledTitle')}</h3>
-        {visibleItems.length ? visibleItems.map(row) : <p>{selected.length ? pv('emptyFilter') : pv(statusFilter === 'remaining' ? 'allChosen' : 'emptyDone')}</p>}
-        {statusFilter === 'remaining' && !selected.length && groups.info.map(row)}</section>
+      : <><section className="space-y-3"><h3 className="font-semibold">{selected.length ? pv('selectedItems') : pv(statusFilters.length === 1 ? (statusFilters[0] === 'remaining' ? 'remainingTitle' : 'settledTitle') : 'allItemsTitle')}</h3>
+        {visibleItems.length ? visibleItems.map(row) : <p>{selected.length ? pv('emptyFilter') : pv(statusFilters.includes('remaining') ? 'allChosen' : 'emptyDone')}</p>}
+        {statusFilters.length === 0 && !selected.length && groups.info.map(row)}</section>
       {dismissedItems.length > 0 && <section className="rounded-2xl border border-border"><button type="button" className="flex min-h-11 w-full items-center justify-between p-4 font-semibold" aria-expanded={dismissedOpen} onClick={() => setDismissedOpen(!dismissedOpen)}>{pv('notMineTitle', { count: dismissedItems.length })}<ChevronDown aria-hidden size={18} className={dismissedOpen ? 'rotate-180' : ''} /></button>
         {dismissedOpen && <div className="space-y-3 border-t border-border p-4">{dismissedItems.map(row)}</div>}</section>}</>}
     {view.isOwner && <AddItem view={view} pending={pending} run={run} />}
@@ -184,14 +192,21 @@ function Share({ view, pending, origin, copied, run, onCopy }: { view: SplitView
     <button className={secondary + ' w-full'} disabled={pending} onClick={() => { if (window.confirm(t('rotateHelp'))) run({ command: 'rotate_invite', id: view.id }) }}>{t('rotate')}</button></section>
 }
 
-function ItemRow({ item, view, summary, selected, pending, money, run, lock, dismiss, dismissed }: { item: Item; view: SplitViewV2; summary: ReturnType<typeof splitSummaryV2>; selected: string[]; pending: boolean; money: (v: number | bigint) => string; run: (v: Command, after?: () => void) => void; lock: (id: string, group: Group | null) => void; dismiss: (itemId: string, dismissed: boolean) => void; dismissed: boolean }) {
+function ItemRow({ item, view, summary, selected, displayPart, pending, money, run, lock, dismiss, dismissed }: { item: Item; view: SplitViewV2; summary: ReturnType<typeof splitSummaryV2>; selected: string[]; displayPart: StatusFilter | 'all'; pending: boolean; money: (v: number | bigint) => string; run: (v: Command, after?: () => void) => void; lock: (id: string, group: Group | null) => void; dismiss: (itemId: string, dismissed: boolean) => void; dismissed: boolean }) {
   const t = useTranslations('teskeid.receiptSplit'); const pv = useTranslations('teskeid.receiptSplitPreview')
   const self = view.members.find(m => m.isSelf)!; const claims = view.claims.filter(c => c.itemId === item.id); const mine = claims.find(c => c.memberToken === self.token)?.quantityUnits ?? 0
-  const left = summary.remaining.get(item.id) ?? 0; const [value, setValue] = useState(quantityInput(mine)); const [proportion, setProportion] = useState(proportionInput(mine, item.quantityUnits)); const [editing, setEditing] = useState(false)
-  const parsed = parseQuantityUnits(value); const parsedProportion = parseProportionUnits(proportion, item.quantityUnits)
-  useEffect(() => { setValue(quantityInput(mine)); setProportion(proportionInput(mine, item.quantityUnits)) }, [mine, item.quantityUnits])
+  const left = summary.remaining.get(item.id) ?? 0; const [value, setValue] = useState(quantityInput(mine)); const [proportionMode, setProportionMode] = useState<'percent' | 'fraction'>('percent')
+  const [percent, setPercent] = useState(proportionInput(mine, item.quantityUnits).replace('%', '')); const [numerator, setNumerator] = useState(String(mine)); const [denominator, setDenominator] = useState(String(item.quantityUnits)); const [editing, setEditing] = useState(false)
+  const parsed = parseQuantityUnits(value)
+  const proportion = proportionMode === 'percent' ? percent + '%' : numerator + '/' + denominator
+  const parsedProportion = parseProportionUnits(proportion, item.quantityUnits)
+  useEffect(() => { setValue(quantityInput(mine)); setPercent(proportionInput(mine, item.quantityUnits).replace('%', '')); setNumerator(String(mine)); setDenominator(String(item.quantityUnits)) }, [mine, item.quantityUnits])
   const save = (units: number) => run({ command: 'claim', id: view.id, contractVersion: 2, quantityScale: 3000, itemId: item.id, itemRevision: item.itemRevision, previousUnits: mine, quantityUnits: units }, () => lock(item.id, null))
-  const amount = selected.length ? selected.reduce((sum, token) => sum + (summary.lineTotals.get(item.id)?.get(token) ?? BigInt(0)), BigInt(0)) : BigInt(item.totalMinor)
+  const lineTotals = summary.lineTotals.get(item.id)
+  const selectedAmount = selected.reduce((sum, token) => sum + (lineTotals?.get(token) ?? BigInt(0)), BigInt(0))
+  const outstandingAmount = lineTotals?.get(UNSPLIT_V2) ?? BigInt(0)
+  const settledAmount = BigInt(item.totalMinor) - outstandingAmount
+  const amount = selected.length ? selectedAmount : displayPart === 'remaining' ? outstandingAmount : displayPart === 'done' ? settledAmount : BigInt(item.totalMinor)
   const pin: Group = item.kind !== 'item' || item.totalMinor === 0 ? 'info' : left === 0 ? 'done' : 'remaining'
   return <article aria-label={item.description} className="space-y-3 rounded-2xl border border-border bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="break-words font-semibold">{item.description}</h4>
     {item.originalDescription !== item.description && <p className="text-xs text-muted-foreground">{pv('original', { name: item.originalDescription })}</p>}{item.explanation && <p className="break-words text-sm text-muted-foreground">{item.explanation}{item.explanationNeedsReview ? ' · ' + pv('needsReview') : ''}</p>}</div><span className="shrink-0 text-sm">{money(amount)}</span></div>
@@ -201,7 +216,15 @@ function ItemRow({ item, view, summary, selected, pending, money, run, lock, dis
       <div className="grid grid-cols-4 gap-2" aria-label={pv('fractions')}>{[750,1000,1500,3000].map(units => <button key={units} className={mine === units ? primary : secondary} disabled={pending || units > mine + left} onClick={() => save(units)}>{formatQuantity(units)}</button>)}</div>
       <details onToggle={e => lock(item.id, e.currentTarget.open ? pin : null)}><summary className="min-h-11 cursor-pointer py-2 text-sm">{pv('otherQuantity')}</summary><div className="space-y-3 pt-2">
         <label className="block text-sm">{pv('quantity')}<div className="mt-1 flex gap-2"><input className={input + ' min-w-0 flex-1'} aria-label={pv('myQuantity')} inputMode="decimal" value={value} onChange={e => setValue(e.target.value)} /><button className={secondary} disabled={pending || parsed === null || parsed > mine + left} onClick={() => parsed !== null && save(parsed)}>{pv('saveQuantity')}</button></div></label>
-        <label className="block text-sm">{pv('proportion')}<div className="mt-1 flex gap-2"><input className={input + ' min-w-0 flex-1'} aria-label={pv('myProportion')} inputMode="decimal" placeholder="10% eða 1/10" value={proportion} onChange={e => setProportion(e.target.value)} /><button className={secondary} disabled={pending || parsedProportion === null || parsedProportion > mine + left} onClick={() => parsedProportion !== null && save(parsedProportion)}>{pv('saveProportion')}</button></div></label>
+        <fieldset className="space-y-2"><legend className="text-sm">{pv('proportion')}</legend>
+          <div className="grid grid-cols-2 gap-2" aria-label={pv('proportionMode')}>
+            <button type="button" aria-pressed={proportionMode === 'percent'} className={(proportionMode === 'percent' ? primary : secondary) + ' min-h-10'} onClick={() => setProportionMode('percent')}>{pv('percent')}</button>
+            <button type="button" aria-pressed={proportionMode === 'fraction'} className={(proportionMode === 'fraction' ? primary : secondary) + ' min-h-10'} onClick={() => setProportionMode('fraction')}>{pv('fraction')}</button>
+          </div>
+          {proportionMode === 'percent' ? <span className="flex min-h-11 items-center rounded-xl border border-border bg-background px-3 focus-within:ring-2 focus-within:ring-ring"><input className="min-w-0 flex-1 bg-transparent text-base outline-none" aria-label={pv('myPercentage')} inputMode="decimal" value={percent} onChange={e => setPercent(e.target.value.replace(/[^\d.,]/g, ''))} /><span className="ml-2 shrink-0 text-sm text-muted-foreground">%</span></span>
+            : <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2"><input className={input + ' min-w-0 text-base'} aria-label={pv('fractionNumerator')} inputMode="numeric" value={numerator} onChange={e => setNumerator(e.target.value.replace(/\D/g, ''))} /><span aria-hidden className="text-lg text-muted-foreground">/</span><input className={input + ' min-w-0 text-base'} aria-label={pv('fractionDenominator')} inputMode="numeric" value={denominator} onChange={e => setDenominator(e.target.value.replace(/\D/g, ''))} /></div>}
+          <button className={secondary + ' w-full'} disabled={pending || parsedProportion === null || parsedProportion > mine + left} onClick={() => parsedProportion !== null && save(parsedProportion)}>{pv('saveProportion')}</button>
+        </fieldset>
         {parsedProportion !== null && <p className="text-xs text-muted-foreground">{pv('normalizedProportion', { proportion: proportionInput(parsedProportion, item.quantityUnits), quantity: formatQuantity(parsedProportion) })}</p>}
       </div></details>
       {left > 0 && <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm"><button type="button" className="min-h-10 text-primary underline-offset-4 hover:underline" disabled={pending} onClick={() => save(mine + left)}>{pv('takeRest')}</button>

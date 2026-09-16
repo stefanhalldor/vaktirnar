@@ -33,12 +33,27 @@ describe('live standalone v2 board', () => {
       command: 'claim', quantityUnits: 1500, previousUnits: 0, itemRevision: 1, contractVersion: 2, quantityScale: 3000,
     })))
   })
-  it('switches fully claimed items into the settled status and participant filtering keeps all co-claimants visible', () => {
+  it('starts with no status selected and lets either status be selected and cleared', () => {
     const full = { ...view, claims: [{ itemId: id, memberToken: self, quantityUnits: 3000 }] }
     render(<SplitBoardV2 view={full} />)
-    expect(screen.queryByRole('article', { name: 'Wine' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /settled/ }))
+    const outstanding = screen.getByRole('button', { name: /outstanding/ })
+    const settled = screen.getByRole('button', { name: /settled/ })
+    expect(outstanding).toHaveAttribute('aria-pressed', 'false')
+    expect(settled).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByRole('article', { name: 'Wine' })).toBeInTheDocument()
+    fireEvent.click(settled)
+    expect(settled).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(settled)
+    expect(settled).toHaveAttribute('aria-pressed', 'false')
+  })
+  it('includes partially claimed items in both status views and shows the matching amount', () => {
+    const partial = { ...view, claims: [{ itemId: id, memberToken: self, quantityUnits: 1500 }] }
+    render(<SplitBoardV2 view={partial} />)
+    fireEvent.click(screen.getByRole('button', { name: /settled/ }))
+    expect(within(screen.getByRole('article', { name: 'Wine' })).getByText('EUR 5')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /settled/ }))
+    fireEvent.click(screen.getByRole('button', { name: /outstanding/ }))
+    expect(within(screen.getByRole('article', { name: 'Wine' })).getByText('EUR 5')).toBeInTheDocument()
   })
   it('shows every co-claimant on an item while filtering the list to one participant', () => {
     render(<SplitBoardV2 view={{ ...view,
@@ -55,7 +70,12 @@ describe('live standalone v2 board', () => {
     render(<SplitBoardV2 view={view} />)
     const row = screen.getByRole('article', { name: 'Wine' })
     fireEvent.click(within(row).getByText('otherQuantity'))
-    fireEvent.change(within(row).getByLabelText('myProportion'), { target: { value: '1/7' } })
+    expect(within(row).getByLabelText('myPercentage')).toHaveAttribute('inputmode', 'decimal')
+    fireEvent.click(within(row).getByRole('button', { name: 'fraction' }))
+    expect(within(row).getByLabelText('fractionNumerator')).toHaveAttribute('inputmode', 'numeric')
+    expect(within(row).getByLabelText('fractionDenominator')).toHaveAttribute('inputmode', 'numeric')
+    fireEvent.change(within(row).getByLabelText('fractionNumerator'), { target: { value: '1' } })
+    fireEvent.change(within(row).getByLabelText('fractionDenominator'), { target: { value: '7' } })
     expect(within(row).getByText(/normalizedProportion/)).toHaveTextContent('14.3%')
     fireEvent.click(within(row).getByRole('button', { name: 'saveProportion' }))
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ command: 'claim', quantityUnits: 429 })))
