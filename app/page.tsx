@@ -8,6 +8,7 @@ import { PageViewTracker } from '@/components/teskeid/PageViewTracker'
 import { ReadyTeskeidCard } from '@/components/teskeid/ReadyTeskeidCard'
 import { getWeatherEnabledMode } from '@/lib/weather/weatherEnabledMode.server'
 import { presentHouseholdChoresIdea } from '@/lib/household-chores/idea-presentation'
+import { withPublicReceiptSplit } from '@/lib/teskeid/public-ready'
 
 function publicReadyCardHref(slug: string): string {
   if (slug === 'vedrid') {
@@ -45,8 +46,12 @@ export default async function Home() {
   const allIdeas = (ideas ?? []).map((idea) => (
     presentHouseholdChoresIdea(idea, householdChoresCopy)
   ))
-  const launchedIdeas = allIdeas.filter((idea) => idea.status === 'launched')
-  const futureIdeas = allIdeas.filter((idea) => idea.status !== 'launched')
+  const launchedIdeas = allIdeas.filter((idea) => idea.status === 'launched' || idea.slug === 'splitta-reikningnum')
+  const futureIdeas = allIdeas.filter((idea) => idea.status !== 'launched' && idea.slug !== 'splitta-reikningnum')
+  const publicReadyIdeas = withPublicReceiptSplit(launchedIdeas, {
+    title: t('home.receiptSplitCardTitle'),
+    description: t('home.receiptSplitCardDescription'),
+  })
 
   return (
     <main className="min-h-screen bg-[#fbf9f4]">
@@ -60,11 +65,11 @@ export default async function Home() {
         expandedDescription={t('hero.expandedDescription')}
       />
 
-      {!user && launchedIdeas.length > 0 && (
+      {!user && publicReadyIdeas.length > 0 && (
         <section className="max-w-[768px] mx-auto px-5 pb-6">
           <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('home.readyTeskeidarTitle')}</h2>
           <div className="flex flex-col gap-3">
-            {launchedIdeas.map((idea) => (
+            {publicReadyIdeas.map((idea) => (
               <ReadyTeskeidCard
                 key={idea.slug}
                 idea={idea}

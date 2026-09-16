@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getAdmin } from '@/lib/supabase/admin'
 import { extractExpenseReceipt, parseExpenseReceiptExtractionText, verifyExpenseReceiptImage } from '@/lib/expenses/receipt-split.server'
-import { mutationSchema, type SplitResult } from './contracts'
+import { mutationSchema, splitInvitePreviewSchema, type SplitResult } from './contracts'
 import { parseSplitExtractionV2, parseSplitExtractionV2Text, splitEditV2Schema } from './contracts-v2'
 import { SPLIT_BUCKET, SPLIT_PATH, readSplit, splitUser } from './server'
 import { readLegacyReceiptLines } from './legacy.server'
@@ -77,6 +77,23 @@ export async function mutateSplitV2(input: unknown): Promise<SplitResult<{ id: s
     return { ok: true, data: { id: result.id } }
   } catch (error) { return failure(error) }
 }
+export async function deleteSplitFromList(input: unknown): Promise<SplitResult<{ id: string }>> {
+  try {
+    const user = await splitUser()
+    if (!user) return { ok: false, error: 'login' }
+    const value = z.object({ id: z.string().uuid(), requestId: z.string().uuid(), version: z.number().int().positive() }).strict().parse(input)
+    const current = await readSplit(user.id, value.id)
+    if (!current.isOwner || current.version !== value.version) throw new Error('split_conflict')
+    const result = await commandV2(user.id, 'delete', value.requestId, value.id, { version: value.version })
+    if (result.path) {
+      const removed = await getAdmin().storage.from(SPLIT_BUCKET).remove([result.path])
+      if (removed.error) return { ok: false, error: 'failed' }
+    }
+    await commandV2(user.id, 'complete_delete', randomUUID(), value.id, { scope: 'split' })
+    refresh(value.id)
+    return { ok: true, data: { id: value.id } }
+  } catch (error) { return failure(error) }
+}
 function refresh(id: string) {
   revalidatePath(SPLIT_PATH)
   revalidatePath(SPLIT_PATH + '/' + id)
@@ -115,6 +132,51 @@ export async function joinSplit(input: unknown): Promise<SplitResult<{ id: strin
     if (!user) return { ok: false, error: 'login' }
     const value = z.object({ token: z.string().regex(/^[0-9a-f]{64}$/), requestId: z.string().uuid() }).strict().parse(input)
     const result = await commandV2(user.id, 'join', value.requestId, null, { token: value.token })
+    refresh(result.id)
+    return { ok: true, data: { id: result.id } }
+  } catch (error) { return failure(error) }
+}
+
+export async function previewSplitInvite(input: unknown): Promise<SplitResult<{ title: string }>> {
+  try {
+    const token = z.string().regex(/^[0-9a-f]{64}$/).parse(input)
+    const { data, error } = await getAdmin().rpc('receipt_split_invite_preview_v1', { p_token: token })
+    if (error) throw new Error(error.message)
+    return { ok: true, data: splitInvitePreviewSchema.parse(data) }
+  } catch { return { ok: false, error: 'failed' } }
+}
+
+export async function setSplitItemDismissed(input: unknown): Promise<SplitResult<{ id: string }>> {
+  try {
+    const user = await splitUser()
+    if (!user) return { ok: false, error: 'login' }
+    const value = z.object({ id: z.string().uuid(), itemId: z.string().uuid(), requestId: z.string().uuid(), dismissed: z.boolean() }).strict().parse(input)
+    const { data, error } = await getAdmin().rpc('receipt_split_set_item_dismissed_v1', {
+      p_actor_id: user.id, p_request_id: value.requestId, p_split_id: value.id,
+      p_item_id: value.itemId, p_dismissed: value.dismissed,
+    })
+    if (error) throw new Error(error.message)
+    const result = commandResult.parse(data)
+    refresh(result.id)
+    return { ok: true, data: { id: result.id } }
+  } catch (error) { return failure(error) }
+}
+export async function saveSplitExchange(input: unknown): Promise<SplitResult<{ id: string }>> {
+  try {
+    const user = await splitUser()
+    if (!user) return { ok: false, error: 'login' }
+    const value = z.object({
+      id: z.string().uuid(), requestId: z.string().uuid(), version: z.number().int().positive(),
+      currency: z.string().regex(/^[A-Z]{3}$/),
+      rate: z.string().regex(/^\d+(?:\.\d{1,8})?$/),
+    }).strict().parse(input)
+    const { data, error } = await getAdmin().rpc('receipt_split_set_exchange_v1', {
+      p_actor_id: user.id, p_request_id: value.requestId, p_split_id: value.id,
+      p_version: value.version, p_currency: value.currency, p_rate: value.rate,
+    })
+    if (error) throw new Error(error.message)
+    const result = z.object({ id: z.string().uuid() }).strict().parse(data)
+    if (result.id !== value.id) throw new Error('split_result_invalid')
     refresh(result.id)
     return { ok: true, data: { id: result.id } }
   } catch (error) { return failure(error) }

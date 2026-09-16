@@ -1,12 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ mutate: vi.fn(), prepare: vi.fn(), extract: vi.fn(), upload: vi.fn(), writeText: vi.fn(), push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), join: vi.fn() }))
+const mocks = vi.hoisted(() => ({ mutate: vi.fn(), prepare: vi.fn(), extract: vi.fn(), upload: vi.fn(), writeText: vi.fn(), push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), join: vi.fn(), preview: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push, replace: mocks.replace, refresh: mocks.refresh }) }))
 vi.mock('next-intl', () => ({ useLocale: () => 'en', useTranslations: () => (key: string, values?: Record<string,string | number>) => key + (values?.quantity !== undefined ? ' ' + values.quantity : values?.amount !== undefined ? ' ' + values.amount : '') }))
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ storage: { from: () => ({ uploadToSignedUrl: mocks.upload }) } }) }))
 vi.mock('@/lib/receipt-split/actions', () => ({
   mutateSplit: mocks.mutate, prepareSplitImage: mocks.prepare, extractSplitImage: mocks.extract,
-  joinSplit: mocks.join, openSplitImage: vi.fn(),
+  joinSplit: mocks.join, previewSplitInvite: mocks.preview, openSplitImage: vi.fn(),
 }))
 import { SplitImport } from '../SplitImport'
 import { SplitBoard } from '../SplitBoard'
@@ -29,6 +29,7 @@ beforeEach(() => {
   mocks.upload.mockResolvedValue({ error: null })
   mocks.extract.mockResolvedValue({ ok: true, data: { id } })
   mocks.writeText.mockResolvedValue(undefined)
+  mocks.preview.mockResolvedValue({ ok: true, data: { title: 'Dinner at Milan' } })
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: mocks.writeText } })
   sessionStorage.clear()
   history.replaceState({}, '', '/')
@@ -208,9 +209,9 @@ describe('standalone receipt UI', () => {
     render(<SplitJoin />)
     await waitFor(() => expect(location.hash).toBe(''))
     expect(sessionStorage.getItem('teskeid:pending-split-invite')).toBe(token)
-    fireEvent.click(screen.getByRole('button', { name: 'join' }))
-    await screen.findByRole('button', { name: 'signedIn' })
-    fireEvent.click(screen.getByRole('button', { name: 'signedIn' }))
+    expect(await screen.findByText('Dinner at Milan')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'joinYes' }))
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/innskraning?next=%2Fsplitt'))
+    expect(sessionStorage.getItem('teskeid:pending-split-join')).toBe('yes')
   })
 })

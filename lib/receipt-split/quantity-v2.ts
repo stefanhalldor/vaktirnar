@@ -30,6 +30,38 @@ export function parseQuantityUnits(raw: string): number | null {
   return result <= BigInt(MAX_SPLIT_QUANTITY_UNITS) ? Number(result) : null
 }
 
+/** Parse a percentage or fraction of a line. Values that do not land exactly
+ * on the 1/3000 grid are rounded to the nearest unit; callers must show the
+ * normalized result before saving so the rounding is never hidden. */
+export function parseProportionUnits(raw: string, totalUnits: number): number | null {
+  if (!Number.isSafeInteger(totalUnits) || totalUnits <= 0 || totalUnits > MAX_SPLIT_QUANTITY_UNITS) return null
+  const value = raw.trim().replace(',', '.')
+  if (value.length > 40) return null
+  let numerator: bigint
+  let denominator: bigint
+  const percent = /^(\d+)(?:\.(\d+))?\s*%$/.exec(value)
+  const fraction = /^(\d+)\s*\/\s*(\d+)$/.exec(value)
+  if (percent) {
+    const tail = percent[2] ?? ''
+    const decimalScale = BigInt(10) ** BigInt(tail.length)
+    numerator = BigInt(percent[1]) * decimalScale + BigInt(tail || '0')
+    denominator = BigInt(100) * decimalScale
+  } else if (fraction) {
+    numerator = BigInt(fraction[1]); denominator = BigInt(fraction[2])
+  } else return null
+  if (denominator === BigInt(0) || numerator < BigInt(0) || numerator > denominator) return null
+  const scaled = numerator * BigInt(totalUnits)
+  const rounded = (scaled * BigInt(2) + denominator) / (denominator * BigInt(2))
+  return rounded <= BigInt(totalUnits) ? Number(rounded) : null
+}
+
+export function proportionInput(units: number, totalUnits: number): string {
+  if (!Number.isSafeInteger(units) || !Number.isSafeInteger(totalUnits) || units < 0 || totalUnits <= 0 || units > totalUnits)
+    throw new Error('invalid_quantity')
+  const basisPoints = Math.round(units * 10_000 / totalUnits) / 100
+  return String(basisPoints).replace(/\.0+$/, '') + '%'
+}
+
 function gcd(a: number, b: number): number {
   while (b) { const next = a % b; a = b; b = next }
   return a

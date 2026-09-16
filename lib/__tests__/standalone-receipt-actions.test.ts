@@ -10,7 +10,7 @@ vi.mock('@/lib/expenses/receipt-split.server', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/expenses/receipt-split.server')>()
   return { ...actual, extractExpenseReceipt: mocks.provider }
 })
-import { mutateSplit, mutateSplitV2, joinSplit, extractSplitImage, importLegacySplit } from '@/lib/receipt-split/actions'
+import { mutateSplit, mutateSplitV2, joinSplit, extractSplitImage, importLegacySplit, previewSplitInvite, setSplitItemDismissed, deleteSplitFromList, saveSplitExchange } from '@/lib/receipt-split/actions'
 
 const actor = '00000000-0000-4000-8000-000000000001'
 const id = '00000000-0000-4000-8000-000000000002'
@@ -87,6 +87,36 @@ describe('standalone action boundary', () => {
     expect(mocks.rpc.mock.calls[0][0]).toBe('receipt_split_command_v2')
     expect(mocks.rpc.mock.calls[0][1]).toEqual({ p_actor_id: actor, p_command: 'join', p_request_id: requestId, p_split_id: null,
       p_payload: { contractVersion: 2, quantityScale: 3000, token: 'a'.repeat(64) } })
+  })
+  it('previews only a bill title from a valid bearer token without requiring login', async () => {
+    mocks.user.mockResolvedValue(null)
+    mocks.rpc.mockResolvedValue({ data: { title: 'Dinner at Milan' }, error: null })
+    expect(await previewSplitInvite('a'.repeat(64))).toEqual({ ok: true, data: { title: 'Dinner at Milan' } })
+    expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith('receipt_split_invite_preview_v1', { p_token: 'a'.repeat(64) })
+  })
+  it('binds personal item dismissal to the signed-in actor', async () => {
+    expect(await setSplitItemDismissed({ id, itemId: id, requestId, dismissed: true })).toEqual({ ok: true, data: { id } })
+    expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith('receipt_split_set_item_dismissed_v1', {
+      p_actor_id: actor, p_request_id: requestId, p_split_id: id, p_item_id: id, p_dismissed: true,
+    })
+  })
+  it('lets the signed-in member save a normalized shared exchange setting', async () => {
+    expect(await saveSplitExchange({ id, requestId, version: 4, currency: 'PLN', rate: '4.5' })).toEqual({ ok: true, data: { id } })
+    expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith('receipt_split_set_exchange_v1', {
+      p_actor_id: actor, p_request_id: requestId, p_split_id: id, p_version: 4, p_currency: 'PLN', p_rate: '4.5',
+    })
+    expect((await saveSplitExchange({ id, requestId, version: 4, currency: 'pln', rate: '4.5' })).ok).toBe(false)
+    expect(mocks.rpc).toHaveBeenCalledTimes(1)
+  })
+  it('deletes from the list only after rechecking owner and version', async () => {
+    expect(await deleteSplitFromList({ id, requestId, version: 4 })).toEqual({ ok: true, data: { id } })
+    expect(mocks.read).toHaveBeenCalledWith(actor, id)
+    expect(mocks.rpc.mock.calls[0][1]).toMatchObject({ p_actor_id: actor, p_command: 'delete', p_payload: { contractVersion: 2, quantityScale: 3000, version: 4 } })
+    expect(mocks.rpc.mock.calls[1][1]).toMatchObject({ p_command: 'complete_delete', p_payload: { scope: 'split' } })
+
+    vi.clearAllMocks(); mocks.user.mockResolvedValue({ id: actor }); mocks.read.mockResolvedValue({ id, isOwner: false, version: 4 })
+    expect(await deleteSplitFromList({ id, requestId, version: 4 })).toEqual({ ok: false, error: 'conflict' })
+    expect(mocks.rpc).not.toHaveBeenCalled()
   })
   it('does not invoke the provider if an extraction lease is refused', async () => {
     mocks.rpc.mockResolvedValue({ data: null, error: { message: 'split_conflict' } })

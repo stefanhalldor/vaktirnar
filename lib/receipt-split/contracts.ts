@@ -22,7 +22,9 @@ export const splitViewSchema = z.object({
   }).strict()).max(5000),
 }).strict()
 export type SplitView = z.infer<typeof splitViewSchema>
-export const splitListSchema = z.array(splitViewSchema.pick({ id: true, title: true, state: true }))
+export const splitListSchema = z.array(splitViewSchema.pick({ id: true, title: true, state: true, incurredOn: true, version: true, isOwner: true }))
+export type SplitListItem = z.infer<typeof splitListSchema>[number]
+export const splitInvitePreviewSchema = z.object({ title: z.string().trim().min(1).max(200) }).strict()
 export const mutationSchema = z.discriminatedUnion('command', [
   z.object({ command: z.literal('add_item'), requestId: uuid, id: uuid,
     description: z.string().trim().min(1).max(200), quantity: integer.positive().max(1_000_000),

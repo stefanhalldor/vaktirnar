@@ -4,10 +4,12 @@
 - GoLive issue: `516ec885-9521-4d84-8350-9219ac829695`
 - GoLive follow-up external ID: `expense-receipt-ai-daily-quota`
 - GoLive follow-up issue: `bb87bed9-003a-459a-8cb8-f44e3884c9fa` (subtask of `expense-receipt-item-claims`)
+- GoLive participant-controls external ID: `expense-receipt-participant-controls`
+- GoLive participant-controls issue: `fa8b49d9-3d10-4e1c-977d-4454d86b36a5` (subtask of `expense-receipt-item-claims`)
 - Project: Vaktirnar, `1bb6e3fa-ab25-48c0-a806-342465ee5ded`
 - Candidate: `C:\Users\Lenovo\AppData\Local\Temp\teskeid-task-expense-receipt-item-claims-20260913-v2`
 - Base: `57a57d33c093a89ef38dd087acfa2b789897435d`
-- Latest handoff: [Production release lokið](handoffs/2026-09-16-1718-v055-codex-production-release.md)
+- Latest handoff: [SQL189 exact og localhost-gátt](handoffs/2026-09-16-2042-v073-codex-sql189-exact-localhost-gate.md)
 - GoLive er authoritative um status, priority og ownership. Þetta skjal geymir scope, ákvarðanir og evidence.
 
 ## Markmið og samþykkt kjarnaupplifun
@@ -30,6 +32,10 @@ Samþykktur samningur sem kemur í stað fyrri tillagna þar sem þær stangast 
   Þátttakandi breytir eigin magni. ID/claim tengsl og valið einingamagn haldast.
   Magn má ekki fara undir samtals valið. Sameiginlegt parent-lock, revision og
   idempotency verja edit/claim og gömul tæki gegn breyttu verði/magni.
+- Í „Annað magn“ er fjöldi eða hlutfall absolute **eigið heildarmagn**. Vistun
+  yfirskrifar allt fyrra eigið magn sama notanda á liðnum; hún leggst ekki við.
+  Hámark er eigið núverandi magn auk þess sem er enn laust, þannig að aldrei má
+  taka magn sem aðrir þátttakendur hafa þegar tekið.
 - **Núllverð:** hafna verðbreytingu í núll meðan claims eru á línu; fyrst skila
   völdu magni. Án claims má núllkrónulína vera til samkvæmt fyrri reglum.
   Þetta yfirskrifar tillögu v032 um varðveislu claims á núllverðslínu.
@@ -55,6 +61,23 @@ myndgreiningu Teskeiðar og aðra gervigreind sem tvær sýnilegar leiðir.
 einu splitti í `sharing` stöðu; review/uploading/extracting/deleting birtast ekki
 í þeirri valmynd. SQL-frír sýnigagnaskjár er áfram tiltækur á
 `/preview/splitt-v032`; localhost UI-prófun er núverandi gate.
+
+**Næsti candidate, SQL186 ókeyrt:** deilihlekkur sýnir reikningsheiti og skýra
+þátttökuspurningu áður en aðild er stofnuð. Óinnskráður notandi fer í innskráningu
+og síðan sjálfkrafa aftur í rétta splittið. Reikningalisti sýnir dagsetningu allra
+sharing-reikninga sem notandinn á eða tekur þátt í. Skiptingarskjárinn hefur
+Útistandandi/Afgreitt stöðupillur, sýnir alla meðeigendur liðar þegar síað er á
+einn aðila, tekur við fjölda eða hlutfalli (`10%`, `1/10`, `1/7`), býður „Ég tek
+restina“ og geymir „Ekki mitt“ sérstaklega fyrir hvern notanda. „Ekki mitt“ er
+ekki sameiginleg staða; útistandandi liður birtist í samanbrotinni skúffu hjá
+þeim notanda einum. Skýringar úr AI-svari birtast undir upprunalegu heiti.
+
+Eigandi getur sýnt QR-kóða sem er búinn til staðbundið úr deilihlekknum, án
+ytri þjónustu eða kostnaðar. Ef hlekk er snúið breytist QR-kóðinn með honum.
+Efsti reikningsramminn hefur einnig valfrjálsan staðbundinn gengisreikni:
+notandi velur birtingarmynt, slær inn gengi og sér reikningsheild, skráða liði
+og útistandandi fjárhæð í þeirri mynt. Upprunaleg mynt og fjárhæðir eru áfram
+ráðandi; gengið vistast ekki og engin ytri gengisþjónusta er kölluð.
 
 Fólk á að geta splittað reikningi án þess að vita að Útlagt og endurgreitt
 (ÚL) sé til. Splittið er sjálfstætt samstarfsflæði; það stofnar ekki sjálfkrafa
@@ -494,3 +517,68 @@ v055 skráir production release: commit `cb0b05e`, Vercel deployment
 `dpl_7QNHCarYtiYY4F99yidKuCUXd8tP` `Ready`, grænt public/auth header-smoke og
 uppfærða GoLive-stöðu. Kvóta-undirliður er `done`; aðalmiði helst opinn vegna
 frestaðrar ÚL-tengingar.
+v056 skráir deilihlekkjaforskoðun og innskráningarendurkomu, þátttökusögu með
+dagsetningu, meðeigendur í síu, hlutfall/fjölda, stöðupillur, „Ég tek restina“,
+user-bound „Ekki mitt“, AI-skýringar, staðbundinn QR og valfrjálsan gengisreikni.
+SQL186 er skrifað en ókeyrt; read-only preflight er næsta workflow-gátt.
+v057 skráir actual SQL186 preflight frá Stebba sem `READY` með
+`operator_ok`, `predecessor_ok`, `functions_ok` og `targets_absent` öll true.
+Artifact-hashes eru óbreytt og SQL186 migrationin ein er næsta handvirka gátt.
+v058 skráir actual SQL186 migration-niðurstöðu `Success. No rows returned` úr
+skjámynd Stebba. Migrationina má ekki endurkeyra; óbreytt read-only postflight
+er næsta og eina handvirka gáttin.
+v059 skráir actual SQL186 postflight sem `EXACT_INSTALLED` með `table_ok`,
+`functions_ok`, `private_function_ok`, `constraints_ok`, `read_ok` og
+`trigger_ok` öll true. SQL-gáttinni er lokað; innskráð localhost-prófun á
+candidate er næsta stopp.
+v060 lagar localhost-frávik: opinbera forsíðan sýnir nú alltaf „Splitta
+reikningnum“ óinnskráðum, jafnvel ef `ideas` færsla vantar eða er ekki
+`launched`. Kortið leiðir í innskráningu með varðveittum áfangastað. Engin SQL-
+eða auth-regla breyttist; localhost-prófun heldur áfram.
+v061 skýrir að reikningalistinn er afturvirkur en sýnir samkvæmt samþykktum
+samningi aðeins `sharing` reikninga. Silent catch var lagað svo RPC/schema-villa
+birtist sem skýr lestrarvilla í stað þess að líta út eins og tómur listi.
+v062 skráir actual `42702` með `column reference "s.id" is ambiguous` úr
+SQL186 listagrein. Afmarkað SQL187 endurnefnir aðeins table alias `s` í
+`split_row`; data/RLS/grants/detail projection haldast. Hotfix er ókeyrt og
+read-only preflight er næsta workflow-gátt.
+v063 skráir actual SQL187 preflight sem `READY` með `operator_ok`,
+`predecessor_ok`, `old_alias_present` og `hotfix_absent` öll true. Artifact-
+hashes eru óbreytt og SQL187 migrationin ein er næsta handvirka gátt.
+v064 skráir actual SQL187 migration-niðurstöðu `Success. No rows returned` úr
+skjámynd Stebba. Hotfixið má ekki endurkeyra; óbreytt read-only postflight er
+næsta og eina handvirka gáttin.
+v065 skráir actual SQL187 postflight `EXACT_INSTALLED` með öll fjögur gates
+true. Tímabundin rpc/contract merking var fjarlægð úr UI; almennt load-error
+helst. Næsta stopp er localhost-endurprófun reikningalistans.
+v066 bætir owner-only eyðingaraðgerð við reikningalistann með staðfestingu,
+pending/error feedback og endurnýtingu núverandi idempotent delete lifecycle.
+SQL188 bætir `version` og actor-derived `isOwner` við service-only list projection;
+það er ókeyrt og preflight er næsta gate. Athugasemd um hvort „Annað magn“ eigi
+að setja eigið heildarmagn eða bæta við það er skráð sem opin merkingarspurning.
+v067 skráir actual SQL188 preflight `READY` með `operator_ok`, `predecessor_ok`,
+`old_projection_ok` og `addition_absent` öll true. Artifacts eru óbreytt og
+SQL188 migrationin ein er næsta handvirka gátt. Stebbi lokaði einnig
+magnmerkingunni: „Annað magn“ yfirskrifar allt fyrra eigið magn, með capacity-
+hámarki sem varðveitir magn annarra.
+v068 skráir actual SQL188 migration-niðurstöðu `Success. No rows returned` úr
+skjámynd Stebba. Migrationina má ekki endurkeyra; read-only exact postflight er
+næsta og eina handvirka gáttin.
+v069 skráir actual SQL188 postflight `EXACT_INSTALLED` með `security_ok`,
+`alias_ok`, `owner_projection_ok` og `detail_projection_ok` öll true. SQL-gátt
+owner-only list delete er lokuð og localhost eyðingarpróf er næsta stopp.
+v070 breytir gengisreikninum í sameiginlega vistaða stillingu sem allir skráðir
+þátttakendur mega uppfæra með version- og request-id vörn. Skúffan sýnir alla
+þátttakendur með hlut hvers í reikningsmynt og frjálst innsleginni þriggja stafa
+birtingarmynt; óskipt fjárhæð birtist sér. SQL189 er skrifað en ókeyrt og
+read-only preflight er næsta workflow-gátt. Owner-only eyðingarprófið helst opið
+sem aðskilin localhost-athugun.
+v071 skráir actual SQL189 preflight `READY` með `operator_ok`, `predecessor_ok`,
+`columns_absent` og `function_absent` öll true. Artifact-hashes eru óbreytt og
+SQL189 migrationin ein er næsta handvirka gátt.
+v072 skráir actual SQL189 migration-niðurstöðu `Success. No rows returned` úr
+skjámynd Stebba. Migrationina má ekki endurkeyra; read-only exact postflight er
+næsta og eina handvirka gáttin.
+v073 skráir actual SQL189 postflight `EXACT_INSTALLED` með `security_ok`,
+`projection_ok`, `member_version_ok` og `columns_ok` öll true. SQL-gáttinni er
+lokað og localhost-próf á sameiginlegu genginu er næsta stopp.

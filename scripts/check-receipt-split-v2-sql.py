@@ -7,9 +7,10 @@ from pglast.parser import parse_plpgsql_json
 from pglast.stream import RawStream
 
 root = pathlib.Path(__file__).resolve().parents[1]
-for name in ['sql/184_receipt_split_v2.sql',
-             'sql/validation/184-receipt-split-v2/preflight.sql',
-             'sql/validation/184-receipt-split-v2/postflight.sql']:
+names = sys.argv[1:] or ['sql/184_receipt_split_v2.sql',
+                         'sql/validation/184-receipt-split-v2/preflight.sql',
+                         'sql/validation/184-receipt-split-v2/postflight.sql']
+for name in names:
     sql = (root / name).read_text(encoding='utf-8')
     statements = parse_sql(sql)
     bodies = 0

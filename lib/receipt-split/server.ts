@@ -25,7 +25,15 @@ export async function readSplit(actor: string, id: string) {
   return splitViewV2Schema.parse(data)
 }
 export async function listSplits(actor: string) {
-  const { data, error } = await getAdmin().rpc('receipt_split_read_v1', { p_actor_id: actor, p_split_id: null })
-  if (error) throw new Error('split_read_failed')
-  return splitListSchema.parse(data)
+  const { data, error } = await getAdmin().rpc('receipt_split_read_v2', { p_actor_id: actor, p_split_id: null })
+  if (error) {
+    console.warn('[receipt-split-list] rpc', error.code ?? 'unknown')
+    throw new Error('split_list_rpc_failed')
+  }
+  const parsed = splitListSchema.safeParse(data)
+  if (!parsed.success) {
+    console.error('[receipt-split-list] contract', parsed.error.issues.map(issue => ({ code: issue.code, path: issue.path })))
+    throw new Error('split_list_contract_failed')
+  }
+  return parsed.data
 }

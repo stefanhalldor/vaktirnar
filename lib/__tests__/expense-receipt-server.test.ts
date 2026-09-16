@@ -156,6 +156,12 @@ describe('receipt split navigation contract', () => {
       expect(receipt.manualPromptText).toContain(locale === 'is'
         ? 'Varðveittu item-línur með heildarupphæðina 0'
         : 'Preserve item lines whose total amount is 0')
+      expect(receipt.manualPromptText).toContain(locale === 'is'
+        ? 'biddu notandann um að bæta við mynd af reikningnum sem á að splitta'
+        : 'ask the user to attach an image of the bill they want to split')
+      expect(receipt.manualPromptText).toContain(locale === 'is'
+        ? 'ekki búa til JSON eða giska'
+        : 'do not create JSON or guess')
       expect(receipt.manualHelp).not.toContain(locale === 'is'
         ? 'greiningin bregst'
         : 'analysis fails')
