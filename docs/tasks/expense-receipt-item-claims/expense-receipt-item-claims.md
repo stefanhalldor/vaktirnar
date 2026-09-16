@@ -403,3 +403,8 @@ sameinar save-review + confirm í retry-safe server action. 19/19 focused próf,
 type-check og lint standast. Full suite: 8017 pass en 4 óskyld booking-próf falla
 og curated route release artifact vantar; því er production-release ekki merkt
 grænt fyrr en þessi repo-wide gates og localhost-próf hafa verið afgreidd.
+v042 skráir samþykkta production-útgáfu. Commit `71e44cf` var push-að á `main`
+og Vercel deployment `dpl_41yuSzha8EXLNCobPTMxvMirVBUH` varð `Ready` með
+production aliases, þar á meðal `teskeid.is`. Engin migration var keyrð og engum
+Vercel env-breytum var breytt. AI-myndgreining virkjar Stebbi sérstaklega með
+`EXPENSE_RECEIPT_AI_ENABLED`, `ANTHROPIC_API_KEY` og `EXPENSE_RECEIPT_MODEL`.
