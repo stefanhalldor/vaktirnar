@@ -6,10 +6,12 @@
 - GoLive follow-up issue: `bb87bed9-003a-459a-8cb8-f44e3884c9fa` (subtask of `expense-receipt-item-claims`)
 - GoLive participant-controls external ID: `expense-receipt-participant-controls`
 - GoLive participant-controls issue: `fa8b49d9-3d10-4e1c-977d-4454d86b36a5` (subtask of `expense-receipt-item-claims`)
+- GoLive mobile/status external ID: `expense-receipt-mobile-proportion-status`
+- GoLive mobile/status issue: `f0b0c3fd-e5b7-486c-937d-0a29c35fca25` (subtask of `expense-receipt-item-claims`)
 - Project: Vaktirnar, `1bb6e3fa-ab25-48c0-a806-342465ee5ded`
 - Candidate: `C:\Users\Lenovo\AppData\Local\Temp\teskeid-task-expense-receipt-item-claims-20260913-v2`
 - Base: `57a57d33c093a89ef38dd087acfa2b789897435d`
-- Latest handoff: [Participant controls production release](handoffs/2026-09-16-2058-v074-codex-participant-controls-production-release.md)
+- Latest handoff: [Mobile proportion and status production release](handoffs/2026-09-16-2137-v075-codex-mobile-proportion-status-production-release.md)
 - GoLive er authoritative um status, priority og ownership. Þetta skjal geymir scope, ákvarðanir og evidence.
 
 ## Markmið og samþykkt kjarnaupplifun
@@ -35,7 +37,9 @@ Samþykktur samningur sem kemur í stað fyrri tillagna þar sem þær stangast 
 - Í „Annað magn“ er fjöldi eða hlutfall absolute **eigið heildarmagn**. Vistun
   yfirskrifar allt fyrra eigið magn sama notanda á liðnum; hún leggst ekki við.
   Hámark er eigið núverandi magn auk þess sem er enn laust, þannig að aldrei má
-  taka magn sem aðrir þátttakendur hafa þegar tekið.
+  taka magn sem aðrir þátttakendur hafa þegar tekið. Hlutfall er skráð með
+  farsímavænu vali: prósenta í einum number-pad reit með föstu `%`, eða brot í
+  tveimur number-pad reitum með föstu `/` á milli.
 - **Núllverð:** hafna verðbreytingu í núll meðan claims eru á línu; fyrst skila
   völdu magni. Án claims má núllkrónulína vera til samkvæmt fyrri reglum.
   Þetta yfirskrifar tillögu v032 um varðveislu claims á núllverðslínu.
@@ -43,6 +47,10 @@ Samþykktur samningur sem kemur í stað fyrri tillagna þar sem þær stangast 
   haldast í „Eftir“; skil/hækkun magns flytja lið aftur. Röð helst. Pillusía
   sýnir hluti valinna aðila óháð skúffu. Focus/draft/open-state varðveitast við
   8 sekúndna poll og focus refresh; ekkert realtime-push loforð.
+- Stöðupillurnar byrja báðar óvaldar og má velja eða afvelja sjálfstætt.
+  „Útistandandi“ sýnir ótekna hluta og fjárhæð þeirra. „Afgreitt“ sýnir alla
+  tekna hluta, líka á hálfskiptum liðum, og fjárhæð aðeins þess sem hefur verið
+  tekið. Hálfskiptur liður getur því birst undir báðum síum.
 - Upprunalegt heiti alltaf sýnilegt, optional stutt skýring beint undir.
   Optional reitir úr JSON/myndlestri og owner-edit fyrir/eftir deilingu;
   eldri JSON gilt. Vafasöm vélaskýring merkt til yfirferðar, engin ágiskun,
