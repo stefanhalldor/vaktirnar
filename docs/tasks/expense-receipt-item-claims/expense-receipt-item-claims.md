@@ -11,7 +11,7 @@
 - Project: Vaktirnar, `1bb6e3fa-ab25-48c0-a806-342465ee5ded`
 - Candidate: `C:\Users\Lenovo\AppData\Local\Temp\teskeid-task-expense-receipt-item-claims-20260913-v2`
 - Base: `57a57d33c093a89ef38dd087acfa2b789897435d`
-- Latest handoff: [Mobile proportion and status production release](handoffs/2026-09-16-2137-v075-codex-mobile-proportion-status-production-release.md)
+- Latest handoff: [Proportion placeholder production correction](handoffs/2026-09-16-2251-v076-codex-proportion-placeholder-production-correction.md)
 - GoLive er authoritative um status, priority og ownership. Þetta skjal geymir scope, ákvarðanir og evidence.
 
 ## Markmið og samþykkt kjarnaupplifun
@@ -39,7 +39,9 @@ Samþykktur samningur sem kemur í stað fyrri tillagna þar sem þær stangast 
   Hámark er eigið núverandi magn auk þess sem er enn laust, þannig að aldrei má
   taka magn sem aðrir þátttakendur hafa þegar tekið. Hlutfall er skráð með
   farsímavænu vali: prósenta í einum number-pad reit með föstu `%`, eða brot í
-  tveimur number-pad reitum með föstu `/` á milli.
+  tveimur number-pad reitum með föstu `/` á milli. Núllstaða er tóm við focus
+  og sýnir aðeins `0` og `7` sem placeholders. Fyrirliggjandi magn er sett fram
+  sem lítið mannamálsbrot þegar hægt er; innri quantity-einingar sjást aldrei.
 - **Núllverð:** hafna verðbreytingu í núll meðan claims eru á línu; fyrst skila
   völdu magni. Án claims má núllkrónulína vera til samkvæmt fyrri reglum.
   Þetta yfirskrifar tillögu v032 um varðveislu claims á núllverðslínu.
