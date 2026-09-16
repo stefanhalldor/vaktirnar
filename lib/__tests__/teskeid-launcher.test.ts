@@ -51,6 +51,7 @@ beforeEach(() => {
   process.env.AUTH_MVP_ENABLED = 'true'
   process.env.EVENTS_ENABLED = 'true'
   process.env.AGENT_COLLABORATION_ENABLED = 'true'
+  process.env.EXPENSE_RECEIPT_AI_ENABLED = 'true'
   mockCheckFeatureAccess.mockResolvedValue(true)
   mockWeatherAccess.mockResolvedValue({ mode: 'authenticated' })
   mockCollaborationAccess.mockResolvedValue(true)
@@ -61,10 +62,11 @@ beforeEach(() => {
 })
 
 describe('canonical launcher catalog', () => {
-  it('contains the exact ten stable allowlisted IDs', () => {
+  it('contains the exact stable allowlisted IDs', () => {
     expect(TESKEID_LAUNCHER_IDS).toEqual([
-      'lanad-og-skilad', 'utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun',
-      'vedrid', 'kviss', 'auglysandi', 'bokanir', 'heimilisverkin',
+      'lanad-og-skilad', 'utlagt-og-endurgreitt', 'splitta-reikningnum',
+      'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun', 'vedrid', 'kviss',
+      'auglysandi', 'bokanir', 'heimilisverkin',
     ])
     expect(isTeskeidLauncherId('/arbitrary')).toBe(false)
   })
@@ -72,6 +74,7 @@ describe('canonical launcher catalog', () => {
   it.each([
     ['/auth-mvp/lanad-og-skilad/ny', 'lanad-og-skilad'],
     ['/auth-mvp/utlagt-og-endurgreitt/hopar/a', 'utlagt-og-endurgreitt'],
+    ['/auth-mvp/splitta-reikningnum/draft-a', 'splitta-reikningnum'],
     ['/auth-mvp/vidburdir/a', 'afmaeli-og-vidburdir'],
     ['/auth-mvp/bokhaldid/timabil/a', 'bokhaldid'],
     ['/auth-mvp/umonnun', 'umonnun'],
@@ -131,7 +134,7 @@ describe('per-user MRU ordering', () => {
       { feature_key: 'utlagt-og-endurgreitt', created_at: '2026-08-13T12:02:00Z' },
     ])).toEqual([
       'utlagt-og-endurgreitt', 'vedrid', 'bokanir', 'lanad-og-skilad',
-      'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun', 'kviss', 'auglysandi',
+      'splitta-reikningnum', 'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun', 'kviss', 'auglysandi',
       'heimilisverkin',
     ])
   })
@@ -160,9 +163,34 @@ describe('server visibility resolver', () => {
     const ids = await resolveTeskeidLauncherVisibility(USER)
     expect(ids).toEqual(TESKEID_LAUNCHER_IDS)
     expect(mockWeatherAccess).toHaveBeenCalledWith(USER)
-    for (const id of TESKEID_LAUNCHER_IDS.filter((id) => id !== 'vedrid')) {
+    for (const id of TESKEID_LAUNCHER_IDS.filter((id) => (
+      id !== 'vedrid' && id !== 'splitta-reikningnum'
+    ))) {
       expect(mockCheckFeatureAccess).toHaveBeenCalledWith(USER.id, USER.email, id)
     }
+    expect(mockCheckFeatureAccess).toHaveBeenCalledWith(
+      USER.id,
+      USER.email,
+      'utlagt-og-endurgreitt',
+    )
+  })
+
+  it('derives receipt visibility from its own global flag without Expenses entitlement', async () => {
+    mockCheckFeatureAccess.mockImplementation(async (_id: string, _email: string, feature: string) => (
+      feature === 'utlagt-og-endurgreitt'
+    ))
+    mockWeatherAccess.mockResolvedValue({ mode: 'blocked' })
+
+    expect(await resolveTeskeidLauncherVisibility(USER)).toEqual([
+      'utlagt-og-endurgreitt',
+      'splitta-reikningnum',
+    ])
+
+    mockCheckFeatureAccess.mockResolvedValue(false)
+    expect(await resolveTeskeidLauncherVisibility(USER)).toEqual(['splitta-reikningnum'])
+
+    process.env.EXPENSE_RECEIPT_AI_ENABLED = 'false'
+    expect(await resolveTeskeidLauncherVisibility(USER)).toEqual([])
   })
 
   it('fails closed per feature without hiding healthy siblings', async () => {
@@ -171,7 +199,7 @@ describe('server visibility resolver', () => {
       return feature === 'bokanir' || feature === 'kviss'
     })
     mockWeatherAccess.mockRejectedValue(new Error('weather lookup failed'))
-    expect(await resolveTeskeidLauncherVisibility(USER)).toEqual(['kviss', 'bokanir'])
+    expect(await resolveTeskeidLauncherVisibility(USER)).toEqual(['splitta-reikningnum', 'kviss', 'bokanir'])
   })
 
   it('keeps Events visible for an exact active scoped participant without granting global access', async () => {
@@ -194,7 +222,7 @@ describe('server visibility resolver', () => {
     mockWeatherAccess.mockResolvedValue({ mode: 'blocked' })
     mockReadOrder.mockResolvedValue({ ids: ['bokanir', 'kviss'], available: true })
     const result = await resolveTeskeidLauncher(USER)
-    expect(mockReadOrder).toHaveBeenCalledWith(USER.id, ['kviss', 'bokanir'])
+    expect(mockReadOrder).toHaveBeenCalledWith(USER.id, ['splitta-reikningnum', 'kviss', 'bokanir'])
     expect(result.featureIds).toEqual(['bokanir', 'kviss'])
     expect(result.items.map(({ id }) => id)).toEqual(result.featureIds)
   })

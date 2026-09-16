@@ -28,6 +28,9 @@ async function resolveFeatureVisibility(
 ): Promise<boolean> {
   if (!user.email) return false
   try {
+    if (featureId === 'splitta-reikningnum') {
+      return process.env.AUTH_MVP_ENABLED === 'true' && process.env.EXPENSE_RECEIPT_AI_ENABLED === 'true'
+    }
     if (featureId === 'vedrid') {
       return (await resolveAuthenticatedWeatherShellAccess(user)).mode !== 'blocked'
     }

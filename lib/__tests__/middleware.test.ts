@@ -74,6 +74,18 @@ describe('middleware — public static and road-intelligence boundaries', () => 
     expect(config.matcher[0]).toContain('manifest.json')
   })
 
+  it('serves the exact split invite landing without a login redirect', async () => {
+    const res = await middleware(makeReq('/splitt'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('location')).toBeNull()
+  })
+
+  it.each(['/splitt/private', '/splitt-extra'])('does not open invite sibling or nested pages: %s', async path => {
+    const res = await middleware(makeReq(path))
+    expect(res.status).toBe(307)
+    expect(redirectedTo(res)).toBe('/login')
+  })
+
   it.each([
     '/api/teskeid/road-intelligence/station-markers',
     '/api/teskeid/road-intelligence/road-segments?bbox=-24,63,-13,67',
@@ -1099,4 +1111,3 @@ describe('middleware — booking public capability and provider boundaries', () 
     expect(sibling.status).toBe(401)
   })
 })
-

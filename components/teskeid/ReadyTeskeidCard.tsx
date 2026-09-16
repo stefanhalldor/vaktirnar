@@ -13,6 +13,7 @@ import {
   CloudSun,
   Trophy,
   Megaphone,
+  ReceiptText,
   ChevronRight,
   type LucideIcon,
 } from 'lucide-react'
@@ -31,6 +32,7 @@ const SLUG_ICONS: Record<string, LucideIcon> = {
   'auglysandi': Megaphone,
   'bokanir': Calendar,
   'heimilisverkin': ListChecks,
+  'splitta-reikningnum': ReceiptText,
 }
 
 const CATEGORY_ICONS: Record<string, LucideIcon> = {
@@ -52,6 +54,7 @@ const SLUG_COLORS: Record<string, { bg: string; text: string }> = {
   'umonnun':         { bg: 'bg-rose-50',   text: 'text-rose-700'   },
   'utlagt-og-endurgreitt': { bg: 'bg-[#eef7ea]', text: 'text-[#2d5a27]' },
   'afmaeli-og-vidburdir': { bg: 'bg-[#fff4dc]', text: 'text-[#7a4b00]' },
+  'splitta-reikningnum': { bg: 'bg-[#fff4dc]', text: 'text-[#7a4b00]' },
 }
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {

@@ -60,6 +60,8 @@ vi.mock('next-intl/server', () => ({
         loansCardDescription: 'Haltu utan um hvað þú hefur lánað og fengið lánað.',
         expensesCardTitle: 'Útlagt og endurgreitt',
         expensesCardDescription: 'Haltu utan um sameiginleg útgjöld og endurgreiðslur.',
+        receiptSplitCardTitle: 'Splitta reikningnum',
+        receiptSplitCardDescription: 'Myndaðu kvittun og skiptið liðunum á milli ykkar.',
         eventsCardTitle: 'Viðburðir',
         eventsCardDescription: 'Safnaðu gestum og útgjöldum á einum stað.',
         careCardTitle: 'Umönnun',
@@ -451,6 +453,7 @@ function setupGuard(
   const enabled = [
     ['lanad-og-skilad', loansAccess],
     ['utlagt-og-endurgreitt', expensesAccess],
+    ['splitta-reikningnum', process.env.EXPENSE_RECEIPT_AI_ENABLED === 'true' && expensesAccess],
     ['afmaeli-og-vidburdir', eventsAccess],
     ['bokhaldid', bookkeepingAccess],
     ['umonnun', umonnunAccess],
@@ -463,6 +466,7 @@ function setupGuard(
   const meta: Record<string, { href: string; titleKey: string; descriptionKey: string }> = {
     'lanad-og-skilad': { href: '/auth-mvp/lanad-og-skilad', titleKey: 'loansCardTitle', descriptionKey: 'loansCardDescription' },
     'utlagt-og-endurgreitt': { href: '/auth-mvp/utlagt-og-endurgreitt', titleKey: 'expensesCardTitle', descriptionKey: 'expensesCardDescription' },
+    'splitta-reikningnum': { href: '/auth-mvp/splitta-reikningnum', titleKey: 'receiptSplitCardTitle', descriptionKey: 'receiptSplitCardDescription' },
     'afmaeli-og-vidburdir': { href: '/auth-mvp/vidburdir', titleKey: 'eventsCardTitle', descriptionKey: 'eventsCardDescription' },
     bokhaldid: { href: '/auth-mvp/bokhaldid', titleKey: 'bookkeepingCardTitle', descriptionKey: 'bookkeepingCardDescription' },
     umonnun: { href: '/auth-mvp/umonnun', titleKey: 'careCardTitle', descriptionKey: 'careCardDescription' },
@@ -572,6 +576,7 @@ let savedAuth: string | undefined
 let savedWeather: string | undefined
 let savedWeatherPublic: string | undefined
 let savedExpenses: string | undefined
+let savedExpenseReceiptAi: string | undefined
 let savedEvents: string | undefined
 
 beforeEach(() => {
@@ -580,12 +585,14 @@ beforeEach(() => {
   savedWeather = process.env.WEATHER_ENABLED
   savedWeatherPublic = process.env.WEATHER_PUBLIC_ENABLED
   savedExpenses = process.env.EXPENSES_ENABLED
+  savedExpenseReceiptAi = process.env.EXPENSE_RECEIPT_AI_ENABLED
   savedEvents = process.env.EVENTS_ENABLED
   process.env.LOANS_ENABLED = 'true'
   process.env.AUTH_MVP_ENABLED = 'true'
   delete process.env.WEATHER_ENABLED
   delete process.env.WEATHER_PUBLIC_ENABLED
   delete process.env.EVENTS_ENABLED
+  delete process.env.EXPENSE_RECEIPT_AI_ENABLED
   vi.clearAllMocks()
   mockHasExpenseAccessRequestContext.mockResolvedValue(false)
   setupRecentEvents([])
@@ -605,6 +612,8 @@ afterEach(() => {
   else delete process.env.WEATHER_PUBLIC_ENABLED
   if (savedExpenses !== undefined) process.env.EXPENSES_ENABLED = savedExpenses
   else delete process.env.EXPENSES_ENABLED
+  if (savedExpenseReceiptAi !== undefined) process.env.EXPENSE_RECEIPT_AI_ENABLED = savedExpenseReceiptAi
+  else delete process.env.EXPENSE_RECEIPT_AI_ENABLED
   if (savedEvents !== undefined) process.env.EVENTS_ENABLED = savedEvents
   else delete process.env.EVENTS_ENABLED
 })
@@ -667,6 +676,40 @@ describe('HeimPage — Teskeiðar section', () => {
 
     expect(mockHasExpenseAccessRequestContext).not.toHaveBeenCalled()
     expect(screen.queryByTestId('closed-testing-access-request')).not.toBeInTheDocument()
+  })
+
+  it('shows Splitta reikningnum as its own Teskeið for an entitled user when receipt AI is enabled', async () => {
+    process.env.EXPENSE_RECEIPT_AI_ENABLED = 'true'
+    setupGuard(true, false, false, true)
+    setupProfile(null)
+    setupRpcs([])
+
+    render(await HeimPage())
+
+    const link = screen.getByRole('link', { name: 'Opna Splitta reikningnum' })
+    expect(link).toHaveAttribute('href', '/auth-mvp/splitta-reikningnum')
+    expect(screen.getByText('Myndaðu kvittun og skiptið liðunum á milli ykkar.')).toBeDefined()
+  })
+
+  it('does not expose Splitta reikningnum without Expenses entitlement', async () => {
+    process.env.EXPENSE_RECEIPT_AI_ENABLED = 'true'
+    setupGuard(true, false, false, false)
+    setupProfile(null)
+    setupRpcs([])
+
+    render(await HeimPage())
+
+    expect(screen.queryByRole('link', { name: 'Opna Splitta reikningnum' })).toBeNull()
+  })
+
+  it('does not expose Splitta reikningnum with entitlement while receipt AI is disabled', async () => {
+    setupGuard(true, false, false, true)
+    setupProfile(null)
+    setupRpcs([])
+
+    render(await HeimPage())
+
+    expect(screen.queryByRole('link', { name: 'Opna Splitta reikningnum' })).toBeNull()
   })
 
   it('renders "Tilbúnar Teskeiðar" heading', async () => {

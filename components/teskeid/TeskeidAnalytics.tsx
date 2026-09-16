@@ -6,10 +6,12 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { isSafeBookingLoginNext } from '@/lib/auth/loginNext'
 
 const PRIVATE_SENSITIVE_PATHS = [
+  /^\/splitt(?:\/|$)/,
   /^\/bokanir(?:\/|$)/,
   /^\/auth-mvp\/bokanir(?:\/|$)/,
   /^\/auth-mvp\/vidburdir(?:\/|$)/,
   /^\/auth-mvp\/utlagt-og-endurgreitt(?:\/|$)/,
+  /^\/auth-mvp\/splitta-reikningnum(?:\/|$)/,
 ]
 
 /**
@@ -23,7 +25,7 @@ function RouteAwareAnalytics() {
   if (PRIVATE_SENSITIVE_PATHS.some(pattern => pattern.test(pathname))) return null
   if (
     (pathname === '/innskraning' || pathname === '/auth-mvp/minn-profill')
-    && isSafeBookingLoginNext(searchParams.get('next'))
+    && (isSafeBookingLoginNext(searchParams.get('next')) || searchParams.get('next') === '/splitt')
   ) return null
   return <Analytics />
 }

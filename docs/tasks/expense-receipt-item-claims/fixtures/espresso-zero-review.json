@@ -1,0 +1,24 @@
+{
+  "title": "Prufusplitt: espresso og kaka",
+  "currency": "EUR",
+  "incurred_on": "2026-09-15",
+  "receipt_total_minor": 1600,
+  "items": [
+    {
+      "kind": "item",
+      "description": "Espresso",
+      "quantity_milli": 4000,
+      "total_minor": 1600,
+      "confidence_basis_points": 10000,
+      "needs_review": false
+    },
+    {
+      "kind": "item",
+      "description": "Birthday Cake",
+      "quantity_milli": 1000,
+      "total_minor": 0,
+      "confidence_basis_points": 10000,
+      "needs_review": true
+    }
+  ]
+}

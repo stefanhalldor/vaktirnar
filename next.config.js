@@ -18,6 +18,15 @@ const nextConfig = {
         ],
       },
       {
+        // Specific privacy rules follow the global defaults so they win.
+        source: '/splitt',
+        headers: [
+          { key: 'Cache-Control', value: 'private, no-store' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
+        ],
+      },
+      {
         // Booking capability pages may contain contact details and a bearer
         // bootstrap fragment. Keep them out of caches, referrers and indexes.
         source: '/bokanir/:slug/fyrirspurn/:publicId',
@@ -50,6 +59,16 @@ const nextConfig = {
       },
       {
         source: '/auth-mvp/utlagt-og-endurgreitt/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'private, no-store' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
+        ],
+      },
+      {
+        // Receipt images, extracted lines and participant claims are private.
+        // Cover both the upload route and draft-specific review routes.
+        source: '/auth-mvp/splitta-reikningnum/:path*',
         headers: [
           { key: 'Cache-Control', value: 'private, no-store' },
           { key: 'Referrer-Policy', value: 'no-referrer' },

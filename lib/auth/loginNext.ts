@@ -23,6 +23,7 @@ export function isSafeBookingLoginNext(path: string | null | undefined): path is
 }
 
 function isAllowedInternalPath(path: string): boolean {
+  if (path === '/splitt') return true
   if (path.startsWith('/auth-mvp/')) return true
   if (path === '/vedrid') return true
   if (path.startsWith('/vedrid/') || path.startsWith('/vedrid?') || path.startsWith('/vedrid#')) return true

@@ -21,6 +21,7 @@ vi.mock('next-intl', () => ({
     featureNavigation: 'Teskeiðar og aðgangur', ideas: 'Hugmyndabankinn', quiz: 'Kviss',
     submitIdea: 'Ný hugmynd', login: 'Nýskráning / innskráning', loans: 'Lánað og skilað',
     expenses: 'Útlagt og endurgreitt', events: 'Viðburðir', bookkeeping: 'Bókhaldið', care: 'Umönnun',
+    splitReceipt: 'Splitta reikningnum',
     weather: 'Veðrið', advertiser: 'Auglýsandi', bookings: 'Bókanir',
     householdChores: 'Verkefnin', home: 'Heim',
     agentCollaboration: 'Samvinna', profile: 'Minn prófíll', signOut: 'Útskrá',
@@ -44,6 +45,7 @@ vi.stubGlobal('fetch', mockFetch)
 
 const ALL_FEATURES = [
   'lanad-og-skilad', 'utlagt-og-endurgreitt', 'afmaeli-og-vidburdir', 'bokhaldid', 'umonnun',
+  'splitta-reikningnum',
   'vedrid', 'kviss', 'auglysandi', 'bokanir',
   'heimilisverkin',
 ] as const
@@ -85,6 +87,15 @@ describe('TeskeidMenu public variant', () => {
 })
 
 describe('TeskeidMenu authenticated launcher', () => {
+  it('shows the standalone receipt split in authenticated navigation', () => {
+    render(<TeskeidMenu variant="authenticated" initialFeatureIds={['splitta-reikningnum']} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))
+
+    const link = screen.getByRole('link', { name: 'Splitta reikningnum' })
+    expect(link).toHaveAttribute('href', '/auth-mvp/splitta-reikningnum')
+    expect(link.querySelector('svg')).toHaveClass('lucide-receipt-text')
+  })
+
   it('uses a home icon for the Heim navigation item', () => {
     render(<TeskeidMenu variant="authenticated" initialFeatureIds={[]} />)
     fireEvent.click(screen.getByRole('button', { name: 'Valmynd' }))

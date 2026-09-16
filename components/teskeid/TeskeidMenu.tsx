@@ -19,6 +19,7 @@ import {
   Megaphone,
   Menu,
   MessagesSquare,
+  ReceiptText,
   Trophy,
   UserCircle,
   Wallet,
@@ -47,6 +48,7 @@ const PUBLIC_ITEMS = [
 const ICONS: Record<TeskeidLauncherIcon, LucideIcon> = {
   handshake: Handshake,
   wallet: Wallet,
+  'receipt-text': ReceiptText,
   'book-open': BookOpen,
   heart: Heart,
   'cloud-sun': CloudSun,

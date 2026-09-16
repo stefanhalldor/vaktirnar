@@ -10,6 +10,7 @@ import {
 export const TESKEID_LAUNCHER_IDS = [
   'lanad-og-skilad',
   'utlagt-og-endurgreitt',
+  'splitta-reikningnum',
   'afmaeli-og-vidburdir',
   'bokhaldid',
   'umonnun',
@@ -25,6 +26,7 @@ export type TeskeidLauncherId = typeof TESKEID_LAUNCHER_IDS[number]
 export type TeskeidLauncherIcon =
   | 'handshake'
   | 'wallet'
+  | 'receipt-text'
   | 'book-open'
   | 'heart'
   | 'cloud-sun'
@@ -66,10 +68,20 @@ export const TESKEID_LAUNCHER_CATALOG: readonly TeskeidLauncherCatalogItem[] = [
     descriptionKey: 'expensesCardDescription',
   },
   {
+    id: 'splitta-reikningnum',
+    href: '/auth-mvp/splitta-reikningnum',
+    activePrefixes: ['/auth-mvp/splitta-reikningnum'],
+    fallbackRank: 2,
+    icon: 'receipt-text',
+    navKey: 'splitReceipt',
+    titleKey: 'receiptSplitCardTitle',
+    descriptionKey: 'receiptSplitCardDescription',
+  },
+  {
     id: 'afmaeli-og-vidburdir',
     href: '/auth-mvp/vidburdir',
     activePrefixes: ['/auth-mvp/vidburdir'],
-    fallbackRank: 2,
+    fallbackRank: 3,
     icon: 'calendar',
     navKey: 'events',
     titleKey: 'eventsCardTitle',
@@ -79,7 +91,7 @@ export const TESKEID_LAUNCHER_CATALOG: readonly TeskeidLauncherCatalogItem[] = [
     id: 'bokhaldid',
     href: '/auth-mvp/bokhaldid',
     activePrefixes: ['/auth-mvp/bokhaldid'],
-    fallbackRank: 3,
+    fallbackRank: 4,
     icon: 'book-open',
     navKey: 'bookkeeping',
     titleKey: 'bookkeepingCardTitle',
@@ -89,7 +101,7 @@ export const TESKEID_LAUNCHER_CATALOG: readonly TeskeidLauncherCatalogItem[] = [
     id: 'umonnun',
     href: '/auth-mvp/umonnun',
     activePrefixes: ['/auth-mvp/umonnun'],
-    fallbackRank: 4,
+    fallbackRank: 5,
     icon: 'heart',
     navKey: 'care',
     titleKey: 'careCardTitle',
@@ -99,7 +111,7 @@ export const TESKEID_LAUNCHER_CATALOG: readonly TeskeidLauncherCatalogItem[] = [
     id: 'vedrid',
     href: '/auth-mvp/vedrid',
     activePrefixes: ['/auth-mvp/vedrid'],
-    fallbackRank: 5,
+    fallbackRank: 6,
     icon: 'cloud-sun',
     navKey: 'weather',
     titleKey: 'weatherCardTitle',
@@ -109,7 +121,7 @@ export const TESKEID_LAUNCHER_CATALOG: readonly TeskeidLauncherCatalogItem[] = [
     id: 'kviss',
     href: '/auth-mvp/kviss',
     activePrefixes: ['/auth-mvp/kviss'],
-    fallbackRank: 6,
+    fallbackRank: 7,
     icon: 'trophy',
     navKey: 'quiz',
     titleKey: 'quizCardTitle',
@@ -119,7 +131,7 @@ export const TESKEID_LAUNCHER_CATALOG: readonly TeskeidLauncherCatalogItem[] = [
     id: 'auglysandi',
     href: '/auth-mvp/auglysandi',
     activePrefixes: ['/auth-mvp/auglysandi'],
-    fallbackRank: 7,
+    fallbackRank: 8,
     icon: 'megaphone',
     navKey: 'advertiser',
     titleKey: 'advertiserCardTitle',
@@ -129,7 +141,7 @@ export const TESKEID_LAUNCHER_CATALOG: readonly TeskeidLauncherCatalogItem[] = [
     id: 'bokanir',
     href: '/auth-mvp/bokanir',
     activePrefixes: ['/auth-mvp/bokanir'],
-    fallbackRank: 8,
+    fallbackRank: 9,
     icon: 'calendar',
     navKey: 'bookings',
     titleKey: 'bookingsCardTitle',
@@ -139,7 +151,7 @@ export const TESKEID_LAUNCHER_CATALOG: readonly TeskeidLauncherCatalogItem[] = [
     id: 'heimilisverkin',
     href: TASKS_PATH,
     activePrefixes: [TASKS_PATH, HOUSEHOLD_CHORES_LEGACY_PATH],
-    fallbackRank: 9,
+    fallbackRank: 10,
     icon: 'list-checks',
     navKey: 'householdChores',
     titleKey: 'householdChoresCardTitle',

@@ -85,6 +85,9 @@ const AGENT_BRIDGE_PATHS = new Set([
 // Exact-match public paths — no prefix semantics.
 // Use for routes where startsWith would unintentionally open sub-paths or variants.
 const EXACT_PUBLIC_PATHS = new Set([
+  // Capture the invite fragment before login. The page enforces feature flags;
+  // joining and reading a split still require a verified Teskeið session.
+  '/splitt',
   ...AGENT_BRIDGE_PATHS,
   // Cron — no browser session; route handler enforces CRON_SECRET bearer auth
   '/api/cron/warm-vedurstofan',
