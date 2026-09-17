@@ -595,3 +595,45 @@ næsta og eina handvirka gáttin.
 v073 skráir actual SQL189 postflight `EXACT_INSTALLED` með `security_ok`,
 `projection_ok`, `member_version_ok` og `columns_ok` öll true. SQL-gáttinni er
 lokað og localhost-próf á sameiginlegu genginu er næsta stopp.
+v077 undirbýr magnslider fyrir localhost-prófun. Sliderinn sýnir eigið val
+samstundis en sendir claim aðeins þegar fingri/mús er sleppt eða lokið er við
+lyklaborðsaðgerð. Hámarkið tekur magn annarra frá og læsti hlutinn sést á
+stikunni. `Annað magn` er nú þrískiptingin Magn, Prósenta og Brot. Server-
+samningur, SQL og production eru óbreytt; localhost mobile-rýni er næsta gátt.
+v078 þéttir slider-spjaldið eftir localhost-rýni: sérlínan „Mitt magn“ og
+tvöfalda magntalan hverfa. „X af Y eftir“ færist hægrijafnað beint yfir
+sliderinn, eftir þátttakendapillurnar. Aðgengilegt heiti sliders helst ósýnilegt.
+v079 staðsetur eigið magn undir slider-punktinum og varðveitir rétta stöðu fyrir
+nákvæm vistað gildi eins og 0,4. Þegar slider er hreyfður smellur hann á hálfum
+stykkjum; prósentur og önnur brot haldast undir `Annað magn`.
+v080 miðjar merkið undir raunverulegum native slider-punkti og sýnir nákvæmt,
+einfalt hlutfallsbrot þegar það má endurreikna úr claiminu, til dæmis `1/10`
+undir punktinum í stað `0,4`. Annars er magn birt eins og áður.
+v081 fjarlægir ágiskun á framsetningu og undirbýr SQL190 sem vistar hvort claim
+var skráð sem Magn, Prósenta eða Brot. Sliderinn skiptir alltaf aftur í Magn og
+hoppar á hálfum. „Ég tek restina“ er færð við eftirstöðutextann og skúffan heitir
+„Nákvæmari mælieiningar“. SQL190 er ókeyrt; read-only preflight er næsta gátt.
+v082 skráir actual SQL190 preflight `READY` með `operator_ok`, `predecessor_ok`,
+`command_ok` og `target_absent` öll true. Artifact-hashes eru óbreytt og SQL190
+migrationin ein er næsta handvirka gátt.
+v083 skráir actual SQL190 migration success `Success. No rows returned` úr
+skjámynd Stebba. Migrationina má ekki endurkeyra; óbreytt read-only postflight
+er næsta og eina handvirka gáttin.
+v084 skráir actual SQL190 postflight `EXACT_INSTALLED` með `security_ok`,
+`projection_ok`, `command_ok`, `column_ok` og `constraint_ok` öll true. SQL-
+gáttinni er lokað og nýja persisted input-mode flæðið er tilbúið í localhost.
+v085 varðveitir nákvæma brotaskrift notandans, þannig að `2/10` birtist áfram
+sem `2/10` en er ekki stytt í `1/5`. Canonical quantity er áfram notað í
+útreikningum og serverinn sannreynir að brotið samsvari því magni. SQL191 er
+skrifað en ókeyrt; read-only preflight er næsta workflow-gátt.
+v086 skráir actual SQL191 preflight `READY` með `operator_ok`,
+`predecessor_ok` og `targets_absent` öll true. Artifact-hashes eru óbreyttar og
+SQL191 migrationin ein er næsta handvirka workflow-gátt.
+v087 skráir actual SQL191 migration-niðurstöðu `Success. No rows returned` úr
+skjámynd Stebba. Migrationina má ekki endurkeyra; óbreytt read-only exact
+postflight er næsta og eina handvirka SQL-gáttin.
+v088 skráir actual SQL191 postflight `EXACT_INSTALLED` með `security_ok`,
+`projection_ok`, `command_ok`, `columns_ok` og `constraint_ok` öll true. SQL-
+gáttinni er lokað og nákvæm `2/10` localhost-prófun er næsta stopp.
+v089 breytir skúffuheitinu í „Splitta með nákvæmari hætti“ og ensku í „Split
+more precisely“. Engin hegðun eða SQL breytist; type-check og 15 UI-próf standast.

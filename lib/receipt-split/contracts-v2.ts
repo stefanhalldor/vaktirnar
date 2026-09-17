@@ -51,7 +51,9 @@ export function parseSplitExtractionV2Text(text: string) {
 const envelope = { contractVersion: z.literal(2), quantityScale: z.literal(3000), id, requestId: id }
 export const splitEditV2Schema = z.discriminatedUnion('command', [
   z.object({ ...envelope, command: z.literal('claim'), itemId: id, itemRevision: unsigned.positive(),
-    previousUnits: unsigned.max(MAX_SPLIT_QUANTITY_UNITS), quantityUnits: unsigned.max(MAX_SPLIT_QUANTITY_UNITS) }).strict(),
+    previousUnits: unsigned.max(MAX_SPLIT_QUANTITY_UNITS), quantityUnits: unsigned.max(MAX_SPLIT_QUANTITY_UNITS),
+    inputMode: z.enum(['quantity', 'percent', 'fraction']), fractionNumerator: unsigned.positive().max(1_000_000).nullable(),
+    fractionDenominator: unsigned.positive().max(1_000_000).nullable() }).strict(),
   z.object({ ...envelope, command: z.literal('edit_item'), itemId: id, itemRevision: unsigned.positive(),
     description: z.string().trim().min(1).max(200), explanation: z.string().trim().max(240),
     quantityUnits: unsigned.positive().max(MAX_SPLIT_QUANTITY_UNITS), totalMinor: signed }).strict(),

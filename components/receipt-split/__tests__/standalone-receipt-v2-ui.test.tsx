@@ -28,13 +28,59 @@ describe('live standalone v2 board', () => {
     render(<SplitBoardV2 view={view} />)
     expect(screen.getByText(/missing EUR 10/)).toBeInTheDocument()
     expect(screen.getByText('Red wine bottle')).toBeInTheDocument()
-    fireEvent.click(within(screen.getByRole('article', { name: 'Wine' })).getByRole('button', { name: '½' }))
+    const row = within(screen.getByRole('article', { name: 'Wine' }))
+    fireEvent.click(row.getByText('otherQuantity'))
+    fireEvent.click(row.getByRole('button', { name: 'fraction' }))
+    fireEvent.change(row.getByLabelText('fractionNumerator'), { target: { value: '1' } })
+    fireEvent.change(row.getByLabelText('fractionDenominator'), { target: { value: '2' } })
+    fireEvent.click(row.getByRole('button', { name: 'saveProportion' }))
     await waitFor(() => expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({
-      command: 'claim', quantityUnits: 1500, previousUnits: 0, itemRevision: 1, contractVersion: 2, quantityScale: 3000,
+      command: 'claim', quantityUnits: 1500, previousUnits: 0, itemRevision: 1, contractVersion: 2, quantityScale: 3000, inputMode: 'fraction', fractionNumerator: 1, fractionDenominator: 2,
+    })))
+  })
+  it('keeps slider movement local until release and marks quantity taken by others as unavailable', async () => {
+    render(<SplitBoardV2 view={{ ...view,
+      members: [...view.members, { token: other, name: 'Bjarni', isSelf: false }],
+      items: [{ ...view.items[0], quantityUnits: 39000 }],
+      claims: [{ itemId: id, memberToken: other, quantityUnits: 9000, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null }],
+    }} />)
+    const row = within(screen.getByRole('article', { name: 'Wine' }))
+    const slider = row.getByRole('slider', { name: 'sliderLabel' })
+    expect(slider).toHaveAttribute('max', '10')
+    expect(row.queryByText('sliderLabel')).not.toBeInTheDocument()
+    const remaining = row.getByText('remaining 10/13')
+    const claimant = row.getByText('Bjarni · 3')
+    expect(claimant.compareDocumentPosition(remaining) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(remaining.compareDocumentPosition(slider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(row.getByText('takenByOthers')).toBeInTheDocument()
+    fireEvent.change(slider, { target: { value: '4.26' } })
+    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(slider).toHaveValue('4.5')
+    fireEvent.pointerUp(slider)
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1))
+    expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ command: 'claim', quantityUnits: 13500, inputMode: 'quantity' }))
+  })
+  it('shows the persisted fraction until slider use switches the claim back to quantity', async () => {
+    render(<SplitBoardV2 view={{ ...view,
+      items: [{ ...view.items[0], quantityUnits: 12000 }],
+      claims: [{ itemId: id, memberToken: self, quantityUnits: 2400, inputMode: 'fraction' as const, fractionNumerator: 2, fractionDenominator: 10 }],
+    }} />)
+    const row = within(screen.getByRole('article', { name: 'Wine' }))
+    const slider = row.getByRole('slider', { name: 'sliderLabel' })
+    expect(slider).toHaveValue('0.8')
+    expect(slider).toHaveAttribute('step', 'any')
+    const valueBelowThumb = row.getAllByText('2/10').find(element => element.tagName === 'SPAN')
+    expect(valueBelowThumb).toHaveStyle({ left: 'calc(20% + 4.8px)' })
+    fireEvent.change(slider, { target: { value: '1.26' } })
+    expect(row.getByText('1½')).toBeInTheDocument()
+    expect(mocks.mutate).not.toHaveBeenCalled()
+    fireEvent.pointerUp(slider)
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({
+      command: 'claim', quantityUnits: 4500, inputMode: 'quantity',
     })))
   })
   it('starts with no status selected and lets either status be selected and cleared', () => {
-    const full = { ...view, claims: [{ itemId: id, memberToken: self, quantityUnits: 3000 }] }
+    const full = { ...view, claims: [{ itemId: id, memberToken: self, quantityUnits: 3000, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null }] }
     render(<SplitBoardV2 view={full} />)
     const outstanding = screen.getByRole('button', { name: /outstanding/ })
     const settled = screen.getByRole('button', { name: /settled/ })
@@ -47,7 +93,7 @@ describe('live standalone v2 board', () => {
     expect(settled).toHaveAttribute('aria-pressed', 'false')
   })
   it('includes partially claimed items in both status views and shows the matching amount', () => {
-    const partial = { ...view, claims: [{ itemId: id, memberToken: self, quantityUnits: 1500 }] }
+    const partial = { ...view, claims: [{ itemId: id, memberToken: self, quantityUnits: 1500, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null }] }
     render(<SplitBoardV2 view={partial} />)
     fireEvent.click(screen.getByRole('button', { name: /settled/ }))
     expect(within(screen.getByRole('article', { name: 'Wine' })).getByText('EUR 5')).toBeInTheDocument()
@@ -59,7 +105,7 @@ describe('live standalone v2 board', () => {
     render(<SplitBoardV2 view={{ ...view,
       members: [...view.members, { token: other, name: 'Bjarni', isSelf: false }],
       items: [{ ...view.items[0], quantityUnits: 6000 }],
-      claims: [{ itemId: id, memberToken: self, quantityUnits: 1500 }, { itemId: id, memberToken: other, quantityUnits: 1500 }],
+      claims: [{ itemId: id, memberToken: self, quantityUnits: 1500, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null }, { itemId: id, memberToken: other, quantityUnits: 1500, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null }],
     }} />)
     fireEvent.click(screen.getByRole('button', { name: /Anna/ }))
     const row = screen.getByRole('article', { name: 'Wine' })
@@ -70,6 +116,7 @@ describe('live standalone v2 board', () => {
     render(<SplitBoardV2 view={view} />)
     const row = screen.getByRole('article', { name: 'Wine' })
     fireEvent.click(within(row).getByText('otherQuantity'))
+    fireEvent.click(within(row).getByRole('button', { name: 'percent' }))
     expect(within(row).getByLabelText('myPercentage')).toHaveAttribute('inputmode', 'decimal')
     expect(within(row).getByLabelText('myPercentage')).toHaveValue('')
     expect(within(row).getByLabelText('myPercentage')).toHaveAttribute('placeholder', '0')
@@ -84,9 +131,9 @@ describe('live standalone v2 board', () => {
     fireEvent.change(within(row).getByLabelText('fractionDenominator'), { target: { value: '7' } })
     expect(within(row).getByText(/normalizedProportion/)).toHaveTextContent('14.3%')
     fireEvent.click(within(row).getByRole('button', { name: 'saveProportion' }))
-    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ command: 'claim', quantityUnits: 429 })))
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ command: 'claim', quantityUnits: 429, inputMode: 'fraction', fractionNumerator: 1, fractionDenominator: 7 })))
     fireEvent.click(within(row).getByRole('button', { name: 'takeRest' }))
-    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ command: 'claim', quantityUnits: 3000 })))
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ command: 'claim', quantityUnits: 3000, inputMode: 'quantity' })))
     fireEvent.click(within(row).getByRole('button', { name: 'notMine' }))
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledWith(expect.objectContaining({ itemId: id, dismissed: true })))
   })
@@ -159,7 +206,11 @@ describe('live standalone v2 board', () => {
     render(<SplitBoardV2 view={view} />)
     const row = screen.getByRole('article', { name: 'Wine' })
     expect(within(row).getByRole('button', { name: 'edit' })).toBeInTheDocument()
-    expect(within(row).getByRole('button', { name: '½' })).toBeInTheDocument()
+    expect(within(row).getByRole('slider', { name: 'sliderLabel' })).toBeInTheDocument()
+    fireEvent.click(within(row).getByText('otherQuantity'))
+    expect(within(row).getByRole('button', { name: 'quantity' })).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'percent' })).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'fraction' })).toBeInTheDocument()
   })
   it('reveals a locally generated QR canvas for the current share link', async () => {
     render(<SplitBoardV2 view={view} />)
@@ -170,7 +221,7 @@ describe('live standalone v2 board', () => {
   it('shows every participant in both currencies and lets any member save an arbitrary currency code', async () => {
     render(<SplitBoardV2 view={{ ...view, isOwner: false,
       members: [{ token: self, name: 'Anna', isSelf: true }, { token: other, name: 'Bjarni', isSelf: false }],
-      claims: [{ itemId: id, memberToken: self, quantityUnits: 1500 }, { itemId: id, memberToken: other, quantityUnits: 1500 }],
+      claims: [{ itemId: id, memberToken: self, quantityUnits: 1500, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null }, { itemId: id, memberToken: other, quantityUnits: 1500, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null }],
     }} />)
     fireEvent.click(screen.getByRole('button', { name: 'conversion' }))
     fireEvent.change(screen.getByLabelText('targetCurrency'), { target: { value: 'pln' } })

@@ -3,7 +3,7 @@ import { splitSummaryV2, UNSPLIT_V2 } from '@/lib/receipt-split/summary-v2'
 import type { SplitViewV2 } from '@/lib/receipt-split/view-v2'
 const wine: SplitViewV2['items'][number] = { id: 'wine', kind: 'item', description: 'Wine', originalDescription: 'Wine',
   explanation: '', explanationNeedsReview: false, quantityUnits: 3000, itemRevision: 1, totalMinor: 1000 }
-const claim = (memberToken: string, quantityUnits: number) => ({ itemId: 'wine', memberToken, quantityUnits })
+const claim = (memberToken: string, quantityUnits: number) => ({ itemId: 'wine', memberToken, quantityUnits, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null })
 describe('standalone v2 exact allocation', () => {
   it('allocates three exact thirds deterministically with no unclaimed residue', () => {
     const input = { receiptTotalMinor: 1200, items: [wine], claims: [claim('c', 1000), claim('b', 1000), claim('a', 1000)] }

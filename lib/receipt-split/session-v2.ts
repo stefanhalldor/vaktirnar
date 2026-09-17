@@ -21,7 +21,8 @@ export function adaptLegacySplitSession(value: unknown) {
       itemRevision: null,
     })),
     claims: claims.map(({ quantityMilli, ...claim }) => ({
-      ...claim, quantityUnits: legacyMilliToUnits(quantityMilli),
+      ...claim, quantityUnits: legacyMilliToUnits(quantityMilli), inputMode: 'quantity' as const,
+      fractionNumerator: null, fractionDenominator: null,
     })),
     dismissedItemIds: [],
   }

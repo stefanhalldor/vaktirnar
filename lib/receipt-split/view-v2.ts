@@ -15,7 +15,9 @@ export const splitViewV2Schema = splitViewSchema.omit({ totalMinor: true, items:
     quantityUnits: integer.positive().max(MAX_SPLIT_QUANTITY_UNITS), itemRevision: integer.positive(),
     totalMinor: z.number().int().min(-Number.MAX_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER),
   }).strict()).max(100),
-  claims: z.array(z.object({ itemId: uuid, memberToken: uuid, quantityUnits: integer.positive().max(MAX_SPLIT_QUANTITY_UNITS) }).strict()).max(5000),
+  claims: z.array(z.object({ itemId: uuid, memberToken: uuid, quantityUnits: integer.positive().max(MAX_SPLIT_QUANTITY_UNITS),
+    inputMode: z.enum(['quantity', 'percent', 'fraction']), fractionNumerator: integer.positive().max(1_000_000).nullable(),
+    fractionDenominator: integer.positive().max(1_000_000).nullable(), }).strict()).max(5000),
   dismissedItemIds: z.array(uuid).max(100),
 }).strict().superRefine((view, ctx) => {
   const ids = new Set(view.items.map(i => i.id))
@@ -26,7 +28,9 @@ export const splitViewV2Schema = splitViewSchema.omit({ totalMinor: true, items:
     && view.dismissedItemIds.every(itemId => ids.has(itemId))
   for (const claim of view.claims) {
     const key = claim.itemId + ':' + claim.memberToken
-    if (!ids.has(claim.itemId) || !members.has(claim.memberToken) || keys.has(key)) valid = false
+    if (!ids.has(claim.itemId) || !members.has(claim.memberToken) || keys.has(key)
+      || ((claim.fractionNumerator === null) !== (claim.fractionDenominator === null))
+      || (claim.inputMode !== 'fraction' && claim.fractionNumerator !== null)) valid = false
     keys.add(key)
   }
   for (const item of view.items) {

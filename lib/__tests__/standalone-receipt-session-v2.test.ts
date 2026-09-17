@@ -15,7 +15,7 @@ describe('legacy standalone session adapter', () => {
     const before = structuredClone(view)
     const next = adaptLegacySplitSession(view)
     expect(next.items[0]).toMatchObject({ id, quantityUnits: 12000, originalDescription: 'Coffee' })
-    expect(next.claims[0]).toEqual({ itemId: id, memberToken: id, quantityUnits: 999 })
+    expect(next.claims[0]).toEqual({ itemId: id, memberToken: id, quantityUnits: 999, inputMode: 'quantity', fractionNumerator: null, fractionDenominator: null })
     expect(next.members).toEqual(view.members)
     expect(view).toEqual(before)
   })

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, Minus, Plus } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import QRCode from 'qrcode'
 import { TeskeidMultiSelectPillFilter } from '@/components/teskeid/TeskeidMultiSelectPillFilter'
 import { createRequestId, expenseDangerButtonClass as danger, expenseInputClass as input, expensePrimaryButtonClass as primary, expenseSecondaryButtonClass as secondary } from '@/components/expenses/ui'
@@ -11,7 +11,7 @@ import { mutateSplitV2, openSplitImage, saveSplitExchange, setSplitItemDismissed
 import { parseSplitDecimal, splitDecimal } from '@/lib/receipt-split/contracts'
 import { formatSplitMoney } from '@/lib/receipt-split/format'
 import { convertSplitMoney, formatConvertedMoney } from '@/lib/receipt-split/exchange'
-import { formatQuantity, parseProportionUnits, parseQuantityUnits, proportionFractionInput, proportionInput, quantityInput, stepQuantity } from '@/lib/receipt-split/quantity-v2'
+import { formatQuantity, parseProportionUnits, parseQuantityUnits, proportionFractionInput, proportionInput, quantityInput } from '@/lib/receipt-split/quantity-v2'
 import { splitSummaryV2, UNSPLIT_V2 } from '@/lib/receipt-split/summary-v2'
 import type { SplitViewV2 } from '@/lib/receipt-split/view-v2'
 import { SplitImport } from './SplitImport'
@@ -19,6 +19,7 @@ import { SplitImport } from './SplitImport'
 type Item = SplitViewV2['items'][number]
 type Group = 'remaining' | 'done' | 'info'
 type StatusFilter = 'remaining' | 'done'
+type ClaimInputMode = 'quantity' | 'percent' | 'fraction'
 type Command = { command: string; id: string; [key: string]: unknown }
 
 export function SplitBoardV2({ view, recoveryReason }: { view: SplitViewV2; recoveryReason?: 'quota' | 'capacity' }) {
@@ -194,15 +195,33 @@ function Share({ view, pending, origin, copied, run, onCopy }: { view: SplitView
 
 function ItemRow({ item, view, summary, selected, displayPart, pending, money, run, lock, dismiss, dismissed }: { item: Item; view: SplitViewV2; summary: ReturnType<typeof splitSummaryV2>; selected: string[]; displayPart: StatusFilter | 'all'; pending: boolean; money: (v: number | bigint) => string; run: (v: Command, after?: () => void) => void; lock: (id: string, group: Group | null) => void; dismiss: (itemId: string, dismissed: boolean) => void; dismissed: boolean }) {
   const t = useTranslations('teskeid.receiptSplit'); const pv = useTranslations('teskeid.receiptSplitPreview')
-  const self = view.members.find(m => m.isSelf)!; const claims = view.claims.filter(c => c.itemId === item.id); const mine = claims.find(c => c.memberToken === self.token)?.quantityUnits ?? 0
-  const left = summary.remaining.get(item.id) ?? 0; const [value, setValue] = useState(quantityInput(mine)); const [proportionMode, setProportionMode] = useState<'percent' | 'fraction'>('percent')
+  const self = view.members.find(m => m.isSelf)!; const claims = view.claims.filter(c => c.itemId === item.id); const mineClaim = claims.find(c => c.memberToken === self.token); const mine = mineClaim?.quantityUnits ?? 0
+  const left = summary.remaining.get(item.id) ?? 0; const [value, setValue] = useState(quantityInput(mine)); const [entryMode, setEntryMode] = useState<ClaimInputMode>(mineClaim?.inputMode ?? 'quantity')
+  const [sliderUnits, setSliderUnits] = useState(mine); const [sliderMode, setSliderMode] = useState<ClaimInputMode>(mineClaim?.inputMode ?? 'quantity'); const lastSliderSubmission = useRef<number | null>(null)
   const initialFraction = proportionFractionInput(mine, item.quantityUnits)
   const [percent, setPercent] = useState(mine === 0 ? '' : proportionInput(mine, item.quantityUnits).replace('%', '')); const [numerator, setNumerator] = useState(initialFraction.numerator); const [denominator, setDenominator] = useState(initialFraction.denominator); const [editing, setEditing] = useState(false)
   const parsed = parseQuantityUnits(value)
-  const proportion = proportionMode === 'percent' ? percent + '%' : numerator + '/' + denominator
+  const proportion = entryMode === 'percent' ? percent + '%' : numerator + '/' + denominator
   const parsedProportion = parseProportionUnits(proportion, item.quantityUnits)
-  useEffect(() => { const fraction = proportionFractionInput(mine, item.quantityUnits); setValue(quantityInput(mine)); setPercent(mine === 0 ? '' : proportionInput(mine, item.quantityUnits).replace('%', '')); setNumerator(fraction.numerator); setDenominator(fraction.denominator) }, [mine, item.quantityUnits])
-  const save = (units: number) => run({ command: 'claim', id: view.id, contractVersion: 2, quantityScale: 3000, itemId: item.id, itemRevision: item.itemRevision, previousUnits: mine, quantityUnits: units }, () => lock(item.id, null))
+  useEffect(() => { const fraction = proportionFractionInput(mine, item.quantityUnits); const mode = mineClaim?.inputMode ?? 'quantity'; setValue(quantityInput(mine)); setPercent(mine === 0 ? '' : proportionInput(mine, item.quantityUnits).replace('%', '')); setNumerator(mineClaim?.fractionNumerator?.toString() ?? fraction.numerator); setDenominator(mineClaim?.fractionDenominator?.toString() ?? fraction.denominator); setSliderUnits(mine); setSliderMode(mode); setEntryMode(mode); lastSliderSubmission.current = null }, [mine, mineClaim?.inputMode, mineClaim?.fractionNumerator, mineClaim?.fractionDenominator, item.quantityUnits])
+  const save = (units: number, inputMode: ClaimInputMode, fractionNumerator: number | null = null, fractionDenominator: number | null = null) => run({ command: 'claim', id: view.id, contractVersion: 2, quantityScale: 3000, itemId: item.id, itemRevision: item.itemRevision, previousUnits: mine, quantityUnits: units, inputMode, fractionNumerator, fractionDenominator }, () => lock(item.id, null))
+  const sliderMaximum = mine + left
+  const otherUnits = Math.max(0, item.quantityUnits - sliderMaximum)
+  const unlockedPercent = item.quantityUnits > 0 ? sliderMaximum / item.quantityUnits * 100 : 100
+  const sliderPosition = sliderMaximum > 0 ? sliderUnits / sliderMaximum * 100 : 0
+  const sliderFraction = proportionFractionInput(sliderUnits, item.quantityUnits)
+  const sliderDisplay = sliderMode === 'percent' ? proportionInput(sliderUnits, item.quantityUnits)
+    : sliderMode === 'fraction' && mineClaim?.fractionNumerator && mineClaim.fractionDenominator
+      ? `${mineClaim.fractionNumerator}/${mineClaim.fractionDenominator}`
+      : sliderMode === 'fraction' && sliderFraction.numerator && sliderFraction.denominator
+        ? `${sliderFraction.numerator}/${sliderFraction.denominator}` : formatQuantity(sliderUnits)
+  const sliderThumbOffset = 8 * (1 - 2 * sliderPosition / 100)
+  const commitSlider = (units: number) => {
+    const next = Math.max(0, Math.min(sliderMaximum, units))
+    if (pending || next === mine || lastSliderSubmission.current === next) return
+    lastSliderSubmission.current = next
+    save(next, 'quantity')
+  }
   const lineTotals = summary.lineTotals.get(item.id)
   const selectedAmount = selected.reduce((sum, token) => sum + (lineTotals?.get(token) ?? BigInt(0)), BigInt(0))
   const outstandingAmount = lineTotals?.get(UNSPLIT_V2) ?? BigInt(0)
@@ -211,25 +230,27 @@ function ItemRow({ item, view, summary, selected, displayPart, pending, money, r
   const pin: Group = item.kind !== 'item' || item.totalMinor === 0 ? 'info' : left === 0 ? 'done' : 'remaining'
   return <article aria-label={item.description} className="space-y-3 rounded-2xl border border-border bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="break-words font-semibold">{item.description}</h4>
     {item.originalDescription !== item.description && <p className="text-xs text-muted-foreground">{pv('original', { name: item.originalDescription })}</p>}{item.explanation && <p className="break-words text-sm text-muted-foreground">{item.explanation}{item.explanationNeedsReview ? ' · ' + pv('needsReview') : ''}</p>}</div><span className="shrink-0 text-sm">{money(amount)}</span></div>
-    {item.kind === 'item' && item.totalMinor > 0 && <><p className="text-sm text-muted-foreground">{pv('remaining', { remaining: formatQuantity(left), total: formatQuantity(item.quantityUnits) })}</p>
-      <div className="flex flex-wrap gap-2">{claims.map(c => <span key={c.memberToken} className={'rounded-xl px-3 py-2 text-sm ' + (selected.includes(c.memberToken) ? 'bg-primary/15 font-medium text-primary ring-1 ring-primary/30' : 'bg-primary/10 text-primary')}>{view.members.find(m => m.token === c.memberToken)?.name ?? t('unnamed')} · {formatQuantity(c.quantityUnits)}</span>)}</div>
-      <div className="grid grid-cols-[44px_1fr_44px] gap-2"><button aria-label={pv('decrease')} className={secondary} disabled={pending || mine === 0} onClick={() => save(stepQuantity(mine, -1, mine + left))}><Minus aria-hidden size={18} /></button><div className="flex min-h-11 items-center justify-center rounded-xl border border-border font-semibold">{formatQuantity(mine)}</div><button aria-label={pv('increase')} className={secondary} disabled={pending || left === 0} onClick={() => save(stepQuantity(mine, 1, mine + left))}><Plus aria-hidden size={18} /></button></div>
-      <div className="grid grid-cols-4 gap-2" aria-label={pv('fractions')}>{[750,1000,1500,3000].map(units => <button key={units} className={mine === units ? primary : secondary} disabled={pending || units > mine + left} onClick={() => save(units)}>{formatQuantity(units)}</button>)}</div>
+    {item.kind === 'item' && item.totalMinor > 0 && <><div className="flex flex-wrap gap-2">{claims.map(c => { const fraction = proportionFractionInput(c.quantityUnits, item.quantityUnits); const display = c.inputMode === 'percent' ? proportionInput(c.quantityUnits, item.quantityUnits) : c.inputMode === 'fraction' && c.fractionNumerator && c.fractionDenominator ? `${c.fractionNumerator}/${c.fractionDenominator}` : c.inputMode === 'fraction' && fraction.numerator && fraction.denominator ? `${fraction.numerator}/${fraction.denominator}` : formatQuantity(c.quantityUnits); return <span key={c.memberToken} className={'rounded-xl px-3 py-2 text-sm ' + (selected.includes(c.memberToken) ? 'bg-primary/15 font-medium text-primary ring-1 ring-primary/30' : 'bg-primary/10 text-primary')}>{view.members.find(m => m.token === c.memberToken)?.name ?? t('unnamed')} · {display}</span> })}</div>
+      <div className="space-y-1"><div className="flex min-h-10 items-center justify-between gap-3 text-sm">{left > 0 ? <button type="button" className="text-primary underline-offset-4 hover:underline" disabled={pending} onClick={() => save(mine + left, 'quantity')}>{pv('takeRest')}</button> : <span />}<p className="text-right text-muted-foreground">{pv('remaining', { remaining: formatQuantity(left), total: formatQuantity(item.quantityUnits) })}</p></div>
+        <div className="flex min-h-14 items-start" data-testid="quantity-slider-track"><div className="relative min-w-0 pb-5" style={{ width: `${unlockedPercent}%` }}><input id={'quantity-slider-' + item.id} aria-label={pv('sliderLabel')} type="range" min={0} max={sliderMaximum / 3000} step="any" value={sliderUnits / 3000} disabled={pending || sliderMaximum === 0} className="h-11 w-full accent-primary" aria-valuetext={sliderDisplay} onChange={e => { setSliderMode('quantity'); setSliderUnits(Math.round(Number(e.target.value) * 2) * 1500) }} onPointerUp={() => commitSlider(sliderUnits)} onPointerCancel={() => { setSliderUnits(mine); setSliderMode(mineClaim?.inputMode ?? 'quantity') }} onKeyUp={e => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) commitSlider(sliderUnits) }} />
+          <span className="pointer-events-none absolute top-9 -translate-x-1/2 whitespace-nowrap text-xs font-medium text-foreground" style={{ left: `calc(${sliderPosition}% + ${sliderThumbOffset}px)` }} aria-hidden>{sliderDisplay}</span></div>
+          {otherUnits > 0 && <div className="h-2 shrink-0 rounded-r-full border-y border-r border-border bg-[repeating-linear-gradient(135deg,hsl(var(--muted)),hsl(var(--muted))_4px,hsl(var(--border))_4px,hsl(var(--border))_8px)]" style={{ width: `${100 - unlockedPercent}%` }} title={pv('takenByOthers', { quantity: formatQuantity(otherUnits) })} aria-label={pv('takenByOthers', { quantity: formatQuantity(otherUnits) })} />}</div>
+        {otherUnits > 0 && <p className="text-xs text-muted-foreground">{pv('takenByOthers', { quantity: formatQuantity(otherUnits) })}</p>}</div>
       <details onToggle={e => lock(item.id, e.currentTarget.open ? pin : null)}><summary className="min-h-11 cursor-pointer py-2 text-sm">{pv('otherQuantity')}</summary><div className="space-y-3 pt-2">
-        <label className="block text-sm">{pv('quantity')}<div className="mt-1 flex gap-2"><input className={input + ' min-w-0 flex-1'} aria-label={pv('myQuantity')} inputMode="decimal" value={value} onChange={e => setValue(e.target.value)} /><button className={secondary} disabled={pending || parsed === null || parsed > mine + left} onClick={() => parsed !== null && save(parsed)}>{pv('saveQuantity')}</button></div></label>
-        <fieldset className="space-y-2"><legend className="text-sm">{pv('proportion')}</legend>
-          <div className="grid grid-cols-2 gap-2" aria-label={pv('proportionMode')}>
-            <button type="button" aria-pressed={proportionMode === 'percent'} className={(proportionMode === 'percent' ? primary : secondary) + ' min-h-10'} onClick={() => setProportionMode('percent')}>{pv('percent')}</button>
-            <button type="button" aria-pressed={proportionMode === 'fraction'} className={(proportionMode === 'fraction' ? primary : secondary) + ' min-h-10'} onClick={() => setProportionMode('fraction')}>{pv('fraction')}</button>
+        <fieldset className="space-y-3"><legend className="sr-only">{pv('entryMode')}</legend>
+          <div className="grid grid-cols-3 gap-2" aria-label={pv('entryMode')}>
+            <button type="button" aria-pressed={entryMode === 'quantity'} className={(entryMode === 'quantity' ? primary : secondary) + ' min-h-10'} onClick={() => setEntryMode('quantity')}>{pv('quantity')}</button>
+            <button type="button" aria-pressed={entryMode === 'percent'} className={(entryMode === 'percent' ? primary : secondary) + ' min-h-10'} onClick={() => setEntryMode('percent')}>{pv('percent')}</button>
+            <button type="button" aria-pressed={entryMode === 'fraction'} className={(entryMode === 'fraction' ? primary : secondary) + ' min-h-10'} onClick={() => setEntryMode('fraction')}>{pv('fraction')}</button>
           </div>
-          {proportionMode === 'percent' ? <span className="flex min-h-11 items-center rounded-xl border border-border bg-background px-3 focus-within:ring-2 focus-within:ring-ring"><input className="min-w-0 flex-1 bg-transparent text-base outline-none" aria-label={pv('myPercentage')} inputMode="decimal" placeholder="0" value={percent} onFocus={() => { if (percent === '0') setPercent('') }} onChange={e => setPercent(e.target.value.replace(/[^\d.,]/g, ''))} /><span className="ml-2 shrink-0 text-sm text-muted-foreground">%</span></span>
+          {entryMode === 'quantity' ? <label className="block text-sm">{pv('myQuantity')}<div className="mt-1 flex gap-2"><input className={input + ' min-w-0 flex-1'} aria-label={pv('myQuantity')} inputMode="decimal" value={value} onChange={e => setValue(e.target.value)} /><button className={secondary} disabled={pending || parsed === null || parsed > sliderMaximum} onClick={() => parsed !== null && save(parsed, 'quantity')}>{pv('saveQuantity')}</button></div></label>
+            : entryMode === 'percent' ? <span className="flex min-h-11 items-center rounded-xl border border-border bg-background px-3 focus-within:ring-2 focus-within:ring-ring"><input className="min-w-0 flex-1 bg-transparent text-base outline-none" aria-label={pv('myPercentage')} inputMode="decimal" placeholder="0" value={percent} onFocus={() => { if (percent === '0') setPercent('') }} onChange={e => setPercent(e.target.value.replace(/[^\d.,]/g, ''))} /><span className="ml-2 shrink-0 text-sm text-muted-foreground">%</span></span>
             : <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2"><input className={input + ' min-w-0 text-base'} aria-label={pv('fractionNumerator')} inputMode="numeric" placeholder="0" value={numerator} onFocus={() => { if (numerator === '0') setNumerator('') }} onChange={e => setNumerator(e.target.value.replace(/\D/g, ''))} /><span aria-hidden className="text-lg text-muted-foreground">/</span><input className={input + ' min-w-0 text-base'} aria-label={pv('fractionDenominator')} inputMode="numeric" placeholder="7" value={denominator} onFocus={() => { if (denominator === '0') setDenominator('') }} onChange={e => setDenominator(e.target.value.replace(/\D/g, ''))} /></div>}
-          <button className={secondary + ' w-full'} disabled={pending || parsedProportion === null || parsedProportion > mine + left} onClick={() => parsedProportion !== null && save(parsedProportion)}>{pv('saveProportion')}</button>
+          {entryMode !== 'quantity' && <button className={secondary + ' w-full'} disabled={pending || parsedProportion === null || parsedProportion > sliderMaximum} onClick={() => parsedProportion !== null && save(parsedProportion, entryMode, entryMode === 'fraction' ? Number(numerator) : null, entryMode === 'fraction' ? Number(denominator) : null)}>{pv('saveProportion')}</button>}
         </fieldset>
-        {parsedProportion !== null && <p className="text-xs text-muted-foreground">{pv('normalizedProportion', { proportion: proportionInput(parsedProportion, item.quantityUnits), quantity: formatQuantity(parsedProportion) })}</p>}
+        {entryMode !== 'quantity' && parsedProportion !== null && <p className="text-xs text-muted-foreground">{pv('normalizedProportion', { proportion: proportionInput(parsedProportion, item.quantityUnits), quantity: formatQuantity(parsedProportion) })}</p>}
       </div></details>
-      {left > 0 && <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm"><button type="button" className="min-h-10 text-primary underline-offset-4 hover:underline" disabled={pending} onClick={() => save(mine + left)}>{pv('takeRest')}</button>
-        {mine === 0 && <button type="button" className="min-h-10 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" disabled={pending} onClick={() => dismiss(item.id, !dismissed)}>{pv(dismissed ? 'undoNotMine' : 'notMine')}</button>}</div>}</>}
+      {left > 0 && mine === 0 && <div className="flex justify-end text-sm"><button type="button" className="min-h-10 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" disabled={pending} onClick={() => dismiss(item.id, !dismissed)}>{pv(dismissed ? 'undoNotMine' : 'notMine')}</button></div>}</>}
     {item.kind === 'item' && item.totalMinor === 0 && <p className="text-sm text-muted-foreground">{pv('zeroHelp')}</p>}
     {view.isOwner && <><button className={secondary + ' w-full'} onClick={() => { setEditing(!editing); lock(item.id, editing ? null : pin) }}>{pv('edit')}</button>{editing && <EditItem item={item} view={view} pending={pending} run={run} close={() => { setEditing(false); lock(item.id, null) }} />}</>}
   </article>
