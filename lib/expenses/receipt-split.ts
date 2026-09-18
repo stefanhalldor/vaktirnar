@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { EXPENSE_CURRENCIES } from './input-money'
+import { EXPENSE_CURRENCY_CODE_PATTERN } from './input-money'
 
 export const EXPENSE_RECEIPT_MAX_BYTES = 10 * 1024 * 1024
 export const EXPENSE_RECEIPT_MIME_TYPES = [
@@ -51,7 +51,7 @@ export const ReviewExpenseReceiptSchema = z.object({
   draft_id: uuid,
   expected_receipt_version: safePositive,
   title: z.string().trim().min(1).max(200),
-  currency: z.enum(EXPENSE_CURRENCIES),
+  currency: z.string().length(3).regex(EXPENSE_CURRENCY_CODE_PATTERN),
   incurred_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   receipt_total_minor: safePositive,
   items: z.array(z.object({
@@ -153,7 +153,7 @@ const receiptViewWireSchema = z.object({
   image_available: z.boolean(),
   title: z.string().trim().min(1).max(200).nullable(),
   incurred_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
-  currency: z.enum(EXPENSE_CURRENCIES).nullable(),
+  currency: z.string().length(3).regex(EXPENSE_CURRENCY_CODE_PATTERN).nullable(),
   receipt_total_minor: safePositive.nullable(),
   items_total_minor: z.number().int().min(Number.MIN_SAFE_INTEGER)
     .max(Number.MAX_SAFE_INTEGER).nullable(),
@@ -216,7 +216,7 @@ export interface ExpenseReceiptSplitView {
   imageAvailable: boolean
   title: string | null
   incurredOn: string | null
-  currency: typeof EXPENSE_CURRENCIES[number] | null
+  currency: string | null
   receiptTotalMinor: number | null
   itemsTotalMinor: number | null
   totalMatches: boolean

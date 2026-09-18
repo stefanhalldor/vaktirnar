@@ -49,6 +49,22 @@ describe('manual receipt extraction import', () => {
     )).toEqual(extraction)
   })
 
+  it('accepts a three-letter receipt currency outside the common UI suggestions', () => {
+    const polishReceipt = {
+      ...extraction,
+      title: 'PARAGON FISKALNY',
+      currency: 'PLN',
+      receipt_total_minor: 457_326,
+      items: [{
+        ...extraction.items[0],
+        description: 'Serwis 10%.A',
+        quantity_milli: 1_000,
+        total_minor: 457_326,
+      }],
+    }
+    expect(parseExpenseReceiptExtractionText(JSON.stringify(polishReceipt))).toEqual(polishReceipt)
+  })
+
   it('rejects prose, tables, extra fields and SQL-invalid adjustment quantities', () => {
     expect(() => parseExpenseReceiptExtractionText(
       'Here is the result:\n```json\n' + JSON.stringify(extraction) + '\n```',

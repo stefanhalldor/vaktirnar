@@ -167,19 +167,21 @@ function SplitReview({ view }: { view: SplitView }) {
   const [title, setTitle] = useState(view.title)
   const [date, setDate] = useState(view.incurredOn)
   const [currency, setCurrency] = useState(view.currency)
-  const [total, setTotal] = useState(splitDecimal(view.totalMinor, expenseCurrencyMinorDigits(currency)))
+  const currencyValid = /^[A-Z]{3}$/.test(currency)
+  const currencyDigits = currencyValid ? expenseCurrencyMinorDigits(currency) : 2
+  const [total, setTotal] = useState(splitDecimal(view.totalMinor, expenseCurrencyMinorDigits(view.currency)))
   const [items, setItems] = useState(view.items.map(i => ({ ...i, zero: i.kind === 'item' && i.totalMinor === 0,
-    quantity: splitDecimal(i.quantityMilli, 3), amount: splitDecimal(i.totalMinor, expenseCurrencyMinorDigits(currency)) })))
+    quantity: splitDecimal(i.quantityMilli, 3), amount: splitDecimal(i.totalMinor, expenseCurrencyMinorDigits(view.currency)) })))
   const request = useRef<{ key: string; id: string } | null>(null)
   function update(id: string, patch: { amount?: string; quantity?: string; description?: string }) {
     setDirty(true); setItems(rows => rows.map(i => i.id === id ? { ...i, ...patch } : i))
   }
   function submit(confirm: boolean) {
     const parsed = items.map(i => ({ kind: i.kind, description: i.description,
-      quantity_milli: parseSplitDecimal(i.quantity, 3), total_minor: parseSplitDecimal(i.amount, expenseCurrencyMinorDigits(currency)),
+      quantity_milli: parseSplitDecimal(i.quantity, 3), total_minor: parseSplitDecimal(i.amount, currencyDigits),
       confidence_basis_points: 10000, needs_review: false }))
-    const totalMinor = parseSplitDecimal(total, expenseCurrencyMinorDigits(currency))
-    if (!confirm && (!title.trim() || !date || totalMinor === null || totalMinor <= 0 || parsed.some(i => i.quantity_milli === null || i.quantity_milli <= 0 || i.total_minor === null))) {
+    const totalMinor = parseSplitDecimal(total, currencyDigits)
+    if (!confirm && (!title.trim() || !date || !currencyValid || totalMinor === null || totalMinor <= 0 || parsed.some(i => i.quantity_milli === null || i.quantity_milli <= 0 || i.total_minor === null))) {
       setError(t('invalid')); return
     }
     const payload = confirm ? { command: 'confirm' as const, id: view.id, version: view.version }
@@ -203,14 +205,14 @@ function SplitReview({ view }: { view: SplitView }) {
       <label className="text-sm">{t('amount')}<input inputMode="decimal" value={i.amount} className={input} disabled={pending} onChange={e => update(i.id, { amount: e.target.value })} /></label>
     </div>
   </div>) }
-  const currentTotal = parseSplitDecimal(total, expenseCurrencyMinorDigits(currency))
-  const currentAmounts = items.map(i => parseSplitDecimal(i.amount, expenseCurrencyMinorDigits(currency)))
+  const currentTotal = parseSplitDecimal(total, currencyDigits)
+  const currentAmounts = items.map(i => parseSplitDecimal(i.amount, currencyDigits))
   const difference = currentTotal === null || currentAmounts.some(amount => amount === null)
     ? null
     : BigInt(currentTotal) - currentAmounts.reduce<bigint>((sum, amount) => sum + BigInt(amount!), BigInt(0))
   const matches = difference === BigInt(0)
   const differenceMessage = difference === null ? t('mismatch') : difference === BigInt(0) ? null
-    : t(difference > BigInt(0) ? 'missingAmount' : 'excessAmount', {
+    : !currencyValid ? t('mismatch') : t(difference > BigInt(0) ? 'missingAmount' : 'excessAmount', {
       amount: formatSplitMoney(difference < BigInt(0) ? -difference : difference, currency, locale),
     })
   return <section className="space-y-4">
@@ -218,17 +220,19 @@ function SplitReview({ view }: { view: SplitView }) {
     <label className="block text-sm">{t('name')}<input value={title} disabled={pending} onChange={e => { setTitle(e.target.value); setDirty(true) }} className={input} /></label>
     <div className="grid grid-cols-2 gap-3">
       <label className="min-w-0 text-sm">{t('date')}<input type="date" value={date} disabled={pending} onChange={e => { setDate(e.target.value); setDirty(true) }} className={input} /></label>
-      <label className="text-sm">{t('currency')}<select value={currency} disabled={pending} onChange={e => { setCurrency(e.target.value as SplitView['currency']); setDirty(true) }} className={input}>
-        {['ISK','EUR','USD','GBP','DKK','NOK','SEK'].map(c => <option key={c}>{c}</option>)}</select></label>
+      <label className="text-sm">{t('currency')}<input value={currency} disabled={pending} maxLength={3}
+        autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+        onChange={e => { setCurrency(e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase()); setDirty(true) }}
+        className={input + ' uppercase'} /></label>
     </div>
     <label className="block text-sm">{t('total')}<input value={total} inputMode="decimal" disabled={pending} onChange={e => { setTotal(e.target.value); setDirty(true) }} className={input} /></label>
     {items.some(i => i.zero) && <fieldset className="space-y-3 rounded-2xl border border-primary/30 p-4"><legend className="px-2 font-semibold">{t('zeroTitle')}</legend>
       <p className="text-sm leading-6 text-muted-foreground">{t('zeroHelp')}</p>{rows(true)}</fieldset>}
     {rows(false)}
-    <AddSplitItem currency={currency} disabled={pending || items.length >= 100} onAdd={async item => {
+    <AddSplitItem currency={currency} disabled={pending || !currencyValid || items.length >= 100} onAdd={async item => {
       setItems(rows => [...rows, { id: createRequestId(), kind: 'item', description: item.description,
         quantityMilli: item.quantity, totalMinor: item.amount, zero: false,
-        quantity: splitDecimal(item.quantity, 3), amount: splitDecimal(item.amount, expenseCurrencyMinorDigits(currency)) }])
+        quantity: splitDecimal(item.quantity, 3), amount: splitDecimal(item.amount, currencyDigits) }])
       setDirty(true)
       return { ok: true, data: null }
     }} />

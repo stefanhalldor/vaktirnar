@@ -4,12 +4,13 @@ import { normalizeDisplayLocale } from '../date-format'
 
 export const EXPENSE_CURRENCIES = ['ISK', 'EUR', 'USD', 'GBP', 'DKK', 'NOK', 'SEK'] as const
 export type ExpenseCurrency = (typeof EXPENSE_CURRENCIES)[number]
+export const EXPENSE_CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/
 
 const ZERO_DECIMAL_CURRENCIES = new Set<string>(['ISK'])
 
 export function expenseCurrencyMinorDigits(currency: string): number {
   const normalized = normalizeCurrency(currency)
-  if (!(EXPENSE_CURRENCIES as readonly string[]).includes(normalized)) {
+  if (!EXPENSE_CURRENCY_CODE_PATTERN.test(normalized)) {
     failExpenseDomain('invalid_currency', { currency: normalized })
   }
   return ZERO_DECIMAL_CURRENCIES.has(normalized) ? 0 : 2

@@ -12,6 +12,7 @@ import {
   parseExpenseReceiptSplitView,
   type ExpenseReceiptSplitView,
 } from './receipt-split'
+import { EXPENSE_CURRENCY_CODE_PATTERN } from './input-money'
 
 const extractedLineSchema = z.object({
   kind: z.enum(['item', 'discount', 'tax', 'tip']),
@@ -31,7 +32,7 @@ const extractedLineSchema = z.object({
 
 const extractedReceiptSchema = z.object({
   title: z.string().trim().min(1).max(200),
-  currency: z.enum(['ISK', 'EUR', 'USD', 'GBP', 'DKK', 'NOK', 'SEK']),
+  currency: z.string().length(3).regex(EXPENSE_CURRENCY_CODE_PATTERN),
   incurred_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   receipt_total_minor: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   items: z.array(extractedLineSchema).min(1).max(EXPENSE_RECEIPT_MAX_ITEMS),
@@ -121,7 +122,7 @@ export async function extractExpenseReceipt(
         required: ['title', 'currency', 'incurred_on', 'receipt_total_minor', 'items'],
         properties: {
           title: { type: 'string', maxLength: 200 },
-          currency: { type: 'string', enum: ['ISK', 'EUR', 'USD', 'GBP', 'DKK', 'NOK', 'SEK'] },
+          currency: { type: 'string', minLength: 3, maxLength: 3, pattern: '^[A-Z]{3}$' },
           incurred_on: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
           receipt_total_minor: { type: 'integer', minimum: 1 },
           items: {

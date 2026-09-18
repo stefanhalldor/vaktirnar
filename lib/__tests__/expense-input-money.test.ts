@@ -35,11 +35,12 @@ describe('expense amount input', () => {
     expect(() => parseExpenseAmountToMinor('1.234', 'EUR')).toThrow(ExpenseDomainError)
   })
 
-  it('rejects zero, negative, unsupported currencies and unsafe amounts', () => {
+  it('rejects zero, negative, malformed currency codes and unsafe amounts', () => {
     expect(() => parseExpenseAmountToMinor('0', 'ISK')).toThrow(ExpenseDomainError)
     expect(parseExpenseAmountToMinor('0', 'ISK', { allowZero: true })).toBe(0)
     expect(() => parseExpenseAmountToMinor('-1', 'ISK')).toThrow(ExpenseDomainError)
-    expect(() => parseExpenseAmountToMinor('10', 'ZZZ')).toThrow(ExpenseDomainError)
+    expect(parseExpenseAmountToMinor('10.25', 'PLN')).toBe(1_025)
+    expect(() => parseExpenseAmountToMinor('10', 'ZZ')).toThrow(ExpenseDomainError)
     expect(() => parseExpenseAmountToMinor('999999999999999999', 'ISK')).toThrow(ExpenseDomainError)
   })
 

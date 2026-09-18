@@ -1,6 +1,6 @@
 /** Prepared standalone v2 boundary. Not connected to live actions in the UI preview phase. */
 import { z } from 'zod'
-import { EXPENSE_CURRENCIES } from '@/lib/expenses/input-money'
+import { EXPENSE_CURRENCY_CODE_PATTERN } from '@/lib/expenses/input-money'
 import { legacyMilliToUnits, MAX_SPLIT_QUANTITY_UNITS } from './quantity-v2'
 const id = z.string().uuid()
 const unsigned = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)
@@ -16,7 +16,7 @@ const commonLine = {
   explanation_needs_review: z.boolean().optional(),
 }
 const rootFields = {
-  title: z.string().trim().min(1).max(200), currency: z.enum(EXPENSE_CURRENCIES),
+  title: z.string().trim().min(1).max(200), currency: z.string().length(3).regex(EXPENSE_CURRENCY_CODE_PATTERN),
   incurred_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), receipt_total_minor: unsigned.positive(),
 }
 const legacyExtraction = z.object({

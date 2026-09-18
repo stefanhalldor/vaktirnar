@@ -8,7 +8,7 @@ export const splitViewSchema = z.object({
   deleteScope: z.enum(['image','split']).nullable(),
   reviewSaved: z.boolean(),
   version: integer.positive(), title: z.string().max(200),
-  currency: z.enum(['ISK', 'EUR', 'USD', 'GBP', 'DKK', 'NOK', 'SEK']),
+  currency: z.string().length(3).regex(/^[A-Z]{3}$/),
   incurredOn: z.string(), totalMinor: integer, isOwner: z.boolean(),
   imageAvailable: z.boolean(), inviteToken: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
   members: z.array(z.object({ token: uuid, name: z.string().max(120).nullable(), isSelf: z.boolean() }).strict()).max(50),

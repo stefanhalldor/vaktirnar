@@ -24,6 +24,13 @@ beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined)
 })
 describe('live standalone v2 board', () => {
+  it('renders PLN receipt amounts and review controls without currency errors', () => {
+    render(<SplitBoardV2 view={{ ...view, currency: 'PLN', sourceContractVersion: 2,
+      state: 'review', inviteToken: null }} />)
+    expect(screen.getByText(/missing PLN 10/)).toBeInTheDocument()
+    expect(screen.getAllByText(/PLN/).length).toBeGreaterThan(0)
+    expect(screen.getByRole('article', { name: 'Wine' })).toBeInTheDocument()
+  })
   it('shows separate reference/line totals and sends an exact half claim', async () => {
     render(<SplitBoardV2 view={view} />)
     expect(screen.getByText(/missing EUR 10/)).toBeInTheDocument()
