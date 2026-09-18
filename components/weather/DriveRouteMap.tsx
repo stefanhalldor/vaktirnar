@@ -536,7 +536,7 @@ export function DriveRouteMap({
           map.setPaintProperty(lineId, 'line-width', route.width ?? 4)
           map.setPaintProperty(lineId, 'line-opacity', route.opacity ?? 0.88)
           map.setPaintProperty(lineId, 'line-offset', route.offset ?? 0)
-          map.setPaintProperty(lineId, 'line-dasharray', route.dashArray ?? null)
+          map.setPaintProperty(lineId, 'line-dasharray', route.dashArray ?? undefined)
         }
         if (map.getLayer(hitId)) {
           map.setPaintProperty(hitId, 'line-width', Math.max(16, (route.width ?? 4) + 10))
