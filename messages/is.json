@@ -274,6 +274,7 @@
       "saveExchange": "Vista gengi",
       "savingExchange": "Vista gengi…",
       "unnamedParticipant": "Ónefndur þátttakandi",
+      "addedBy": "Bætt við af {name}",
       "convertedReceipt": "Reikningur",
       "convertedLines": "Skráðir liðir",
       "convertedOutstanding": "Útistandandi",
@@ -336,6 +337,8 @@
       "receiptHelp": "Þetta breytir viðmiði kvittunarinnar. Fjárhæðir línanna haldast óbreyttar.",
       "add": "Bæta við lið",
       "addHelp": "Nýr liður bætist við skráða liði. Upphæðin á kvittuninni helst óbreytt.",
+      "cancelLine": "Fella niður minn lið",
+      "cancelLineConfirm": "Fella þennan lið niður. Þetta tekst aðeins ef enginn annar hefur valið af honum og afgreiðsla er ekki hafin.",
       "demoControls": "Prófa samstarfið",
       "viewAs": "Skoða sem",
       "owner": "Eigandi",
@@ -5026,6 +5029,18 @@
       "saveFailed": "Ekki tókst að vista breytinguna. Reyndu aftur.",
       "accessChanged": "Aðgangurinn breyttist. Opnaðu síðuna aftur með gildum aðgangi."
     }
+  },
+  "restaurants": {
+    "draft": "Pöntunardrög",
+    "add": "Bæta við",
+    "remove": "Fjarlægja",
+    "quantity": "Magn",
+    "empty": "Drögin eru tóm.",
+    "submit": "Setja í Splitt",
+    "sending": "Sendi…",
+    "login": "Skráðu þig inn og veldu gilt Splitt fyrir borðið.",
+    "conflict": "Matseðillinn, borðið eða Splittið breyttist. Endurhlaðu og staðfestu aftur.",
+    "failed": "Ekki tókst að setja valið í Splitt."
   },
   "advertiser": {
     "title": "Auglýsandi",

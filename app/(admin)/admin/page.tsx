@@ -164,7 +164,7 @@ function BreakdownList({ data, onSelect }: { data: Record<string, number>; onSel
 type FeatureAccessEntry = { email: string; granted_at: string }
 
 interface FeatureAccessSectionProps {
-  featureKey: 'umonnun' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt' | 'afmaeli-og-vidburdir' | 'bokhaldid' | 'kviss' | 'auglysandi' | 'bokanir' | 'heimilisverkin'
+  featureKey: 'umonnun' | 'facebook-oauth' | 'vedrid' | 'ferdalagid' | 'elta-vedrid' | 'weather-provider-vedurstofan' | 'weather-pulse' | 'weather-provider-vegagerdin' | 'road-intelligence-v1' | 'teskeid-routing-v1' | 'utlagt-og-endurgreitt' | 'afmaeli-og-vidburdir' | 'bokhaldid' | 'kviss' | 'auglysandi' | 'bokanir' | 'veitingastadir' | 'veitingastadir_starfsfolk' | 'veitingastadir_gestir' | 'heimilisverkin'
   heading: string
   flagName: string
   enabledFlagName?: string
@@ -1713,6 +1713,21 @@ export default function AdminPage() {
             featureKey="bokanir"
             heading="Bókanir — þjónustuaðilar í private beta"
             flagName="BOOKINGS_ENABLED"
+          />
+          <FeatureAccessSection
+            featureKey="veitingastadir"
+            heading="Veitingastaðir — rekstraraðilar í private beta"
+            flagName="RESTAURANTS_ENABLED"
+          />
+          <FeatureAccessSection
+            featureKey="veitingastadir_starfsfolk"
+            heading="Veitingastaðir — starfsfólk í private beta"
+            flagName="RESTAURANTS_ENABLED"
+          />
+          <FeatureAccessSection
+            featureKey="veitingastadir_gestir"
+            heading="Veitingastaðir — gestir í private beta"
+            flagName="RESTAURANTS_ENABLED"
           />
           <a
             href="/admin/advertiser"

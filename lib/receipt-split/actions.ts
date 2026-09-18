@@ -55,6 +55,38 @@ export async function mutateSplitV2(input: unknown): Promise<SplitResult<{ id: s
     if (!user) return { ok: false, error: 'login' }
     const parsedEdit = splitEditV2Schema.safeParse(input)
     const value = parsedEdit.success ? parsedEdit.data : lifecycleV2Schema.parse(input)
+    if (value.command === 'add_item' || value.command === 'edit_item') {
+      const current = await readSplit(user.id, value.id)
+      if (current.state === 'review') {
+        if (!current.isOwner) throw new Error('split_not_allowed')
+        const { command: operation, id, requestId, ...payload } = value
+        const result = await commandV2(user.id, operation, requestId, id, payload)
+        refresh(result.id)
+        return { ok: true, data: { id: result.id } }
+      }
+      const { id, requestId, command: operation, contractVersion: _contractVersion, quantityScale: _quantityScale, version, ...payload } = value
+      const rpc = operation === 'add_item' ? 'receipt_split_participant_add_item_v1' : 'receipt_split_participant_edit_item_v1'
+      const participantPayload = operation === 'add_item'
+        ? { ...payload, sourceKind: 'manual', initialClaimUnits: 0 }
+        : payload
+      const { data, error } = await getAdmin().rpc(rpc, {
+        p_actor_id: user.id, p_request_id: requestId, p_split_id: id,
+        p_expected_version: version, p_payload: participantPayload,
+      })
+      if (error) throw new Error(error.message)
+      commandResult.parse(data)
+      refresh(id)
+      return { ok: true, data: { id } }
+    }
+    if (value.command === 'cancel_item') {
+      const { data, error } = await getAdmin().rpc('receipt_split_participant_cancel_item_v1', {
+        p_actor_id: user.id, p_request_id: value.requestId, p_split_id: value.id,
+        p_item_id: value.itemId, p_item_revision: value.itemRevision, p_expected_version: value.version,
+      })
+      if (error) throw new Error(error.message)
+      commandResult.parse(data); refresh(value.id)
+      return { ok: true, data: { id: value.id } }
+    }
     if (value.command === 'confirm_review') {
       const { id, requestId, version } = value
       await commandV2(user.id, 'save_review', requestId, id, { version })

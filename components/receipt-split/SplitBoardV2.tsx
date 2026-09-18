@@ -105,7 +105,7 @@ export function SplitBoardV2({ view, recoveryReason }: { view: SplitViewV2; reco
         {statusFilters.length === 0 && !selected.length && groups.info.map(row)}</section>
       {dismissedItems.length > 0 && <section className="rounded-2xl border border-border"><button type="button" className="flex min-h-11 w-full items-center justify-between p-4 font-semibold" aria-expanded={dismissedOpen} onClick={() => setDismissedOpen(!dismissedOpen)}>{pv('notMineTitle', { count: dismissedItems.length })}<ChevronDown aria-hidden size={18} className={dismissedOpen ? 'rotate-180' : ''} /></button>
         {dismissedOpen && <div className="space-y-3 border-t border-border p-4">{dismissedItems.map(row)}</div>}</section>}</>}
-    {view.isOwner && <AddItem view={view} pending={pending} run={run} />}
+    {(view.state === 'sharing' || view.isOwner) && <AddItem view={view} pending={pending} run={run} />}
     {view.state === 'review' && view.isOwner && confirmReview()}
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}{pending && <p role="status">{t('pending')}</p>}
     <button className={secondary + ' w-full'} disabled={pending} onClick={() => router.refresh()}>{t('refresh')}</button>
@@ -172,7 +172,7 @@ function ReviewItemRow({ item, view, pending, run }: { item: Item; view: SplitVi
       <label className="text-sm">{pv('lineAmount')}<span className="mt-1 flex min-h-11 items-center rounded-xl border border-border bg-background px-3 focus-within:ring-2 focus-within:ring-ring"><input className="min-w-0 flex-1 bg-transparent text-base outline-none" aria-label={pv('lineAmount')} inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} /><span className="ml-2 shrink-0 text-sm text-muted-foreground">{view.currency}</span></span></label>
     </fieldset>
     {dirty && <button className={primary + ' w-full'} type="button" disabled={units === null || units === 0 || minor === null || (item.kind === 'item' && minor < 0) || (item.kind !== 'item' && units !== 3000)}
-      onClick={() => run({ command: 'edit_item', id: view.id, contractVersion: 2, quantityScale: 3000, itemId: item.id, itemRevision: item.itemRevision, description: item.description, explanation: item.explanation, quantityUnits: units!, totalMinor: minor! })}>{pv('saveLine')}</button>}
+      onClick={() => run({ command: 'edit_item', id: view.id, contractVersion: 2, quantityScale: 3000, version: view.version, itemId: item.id, itemRevision: item.itemRevision, description: item.description, explanation: item.explanation, quantityUnits: units!, totalMinor: minor! })}>{pv('saveLine')}</button>}
   </article>
 }
 
@@ -229,7 +229,7 @@ function ItemRow({ item, view, summary, selected, displayPart, pending, money, r
   const amount = selected.length ? selectedAmount : displayPart === 'remaining' ? outstandingAmount : displayPart === 'done' ? settledAmount : BigInt(item.totalMinor)
   const pin: Group = item.kind !== 'item' || item.totalMinor === 0 ? 'info' : left === 0 ? 'done' : 'remaining'
   return <article aria-label={item.description} className="space-y-3 rounded-2xl border border-border bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h4 className="break-words font-semibold">{item.description}</h4>
-    {item.originalDescription !== item.description && <p className="text-xs text-muted-foreground">{pv('original', { name: item.originalDescription })}</p>}{item.explanation && <p className="break-words text-sm text-muted-foreground">{item.explanation}{item.explanationNeedsReview ? ' · ' + pv('needsReview') : ''}</p>}</div><span className="shrink-0 text-sm">{money(amount)}</span></div>
+    {item.createdByName && <p className="text-xs text-muted-foreground">{pv('addedBy', { name: item.createdByName })}</p>}{item.originalDescription !== item.description && <p className="text-xs text-muted-foreground">{pv('original', { name: item.originalDescription })}</p>}{item.explanation && <p className="break-words text-sm text-muted-foreground">{item.explanation}{item.explanationNeedsReview ? ' · ' + pv('needsReview') : ''}</p>}</div><span className="shrink-0 text-sm">{money(amount)}</span></div>
     {item.kind === 'item' && item.totalMinor > 0 && <><div className="flex flex-wrap gap-2">{claims.map(c => { const fraction = proportionFractionInput(c.quantityUnits, item.quantityUnits); const display = c.inputMode === 'percent' ? proportionInput(c.quantityUnits, item.quantityUnits) : c.inputMode === 'fraction' && c.fractionNumerator && c.fractionDenominator ? `${c.fractionNumerator}/${c.fractionDenominator}` : c.inputMode === 'fraction' && fraction.numerator && fraction.denominator ? `${fraction.numerator}/${fraction.denominator}` : formatQuantity(c.quantityUnits); return <span key={c.memberToken} className={'rounded-xl px-3 py-2 text-sm ' + (selected.includes(c.memberToken) ? 'bg-primary/15 font-medium text-primary ring-1 ring-primary/30' : 'bg-primary/10 text-primary')}>{view.members.find(m => m.token === c.memberToken)?.name ?? t('unnamed')} · {display}</span> })}</div>
       <div className="space-y-1"><div className="flex min-h-10 items-center justify-between gap-3 text-sm">{left > 0 ? <button type="button" className="text-primary underline-offset-4 hover:underline" disabled={pending} onClick={() => save(mine + left, 'quantity')}>{pv('takeRest')}</button> : <span />}<p className="text-right text-muted-foreground">{pv('remaining', { remaining: formatQuantity(left), total: formatQuantity(item.quantityUnits) })}</p></div>
         <div className="flex min-h-14 items-start" data-testid="quantity-slider-track"><div className="relative min-w-0 pb-5" style={{ width: `${unlockedPercent}%` }}><input id={'quantity-slider-' + item.id} aria-label={pv('sliderLabel')} type="range" min={0} max={sliderMaximum / 3000} step="any" value={sliderUnits / 3000} disabled={pending || sliderMaximum === 0} className="h-11 w-full accent-primary" aria-valuetext={sliderDisplay} onChange={e => { setSliderMode('quantity'); setSliderUnits(Math.round(Number(e.target.value) * 2) * 1500) }} onPointerUp={() => commitSlider(sliderUnits)} onPointerCancel={() => { setSliderUnits(mine); setSliderMode(mineClaim?.inputMode ?? 'quantity') }} onKeyUp={e => { if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) commitSlider(sliderUnits) }} />
@@ -252,7 +252,14 @@ function ItemRow({ item, view, summary, selected, displayPart, pending, money, r
       </div></details>
       {left > 0 && mine === 0 && <div className="flex justify-end text-sm"><button type="button" className="min-h-10 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" disabled={pending} onClick={() => dismiss(item.id, !dismissed)}>{pv(dismissed ? 'undoNotMine' : 'notMine')}</button></div>}</>}
     {item.kind === 'item' && item.totalMinor === 0 && <p className="text-sm text-muted-foreground">{pv('zeroHelp')}</p>}
-    {view.isOwner && <><button className={secondary + ' w-full'} onClick={() => { setEditing(!editing); lock(item.id, editing ? null : pin) }}>{pv('edit')}</button>{editing && <EditItem item={item} view={view} pending={pending} run={run} close={() => { setEditing(false); lock(item.id, null) }} />}</>}
+    {(() => {
+      const selfToken = view.members.find(member => member.isSelf)?.token
+      const ownsLine = item.createdByMemberToken ? item.createdByMemberToken === selfToken : view.isOwner
+      const canEdit = ownsLine && item.sourceKind !== 'restaurant_menu'
+      if (!ownsLine) return null
+      return <div className="space-y-2">{canEdit && <><button className={secondary + ' w-full'} onClick={() => { setEditing(!editing); lock(item.id, editing ? null : pin) }}>{pv('edit')}</button>{editing && <EditItem item={item} view={view} pending={pending} run={run} close={() => { setEditing(false); lock(item.id, null) }} />}</>}
+        <button type="button" className={danger + ' w-full'} disabled={pending} onClick={() => { if (window.confirm(pv('cancelLineConfirm'))) run({ command: 'cancel_item', id: view.id, contractVersion: 2, quantityScale: 3000, version: view.version, itemId: item.id, itemRevision: item.itemRevision }) }}>{pv('cancelLine')}</button></div>
+    })()}
   </article>
 }
 
@@ -266,7 +273,7 @@ function EditItem({ item, view, pending, run, close }: { item: Item; view: Split
     <label className="block text-sm">{pv('explanation')}<input className={input} value={explanation} maxLength={240} onChange={e => setExplanation(e.target.value)} /></label>
     <div className="grid grid-cols-2 gap-3"><label className="text-sm">{pv('quantity')}<input className={input} inputMode="decimal" value={quantity} onChange={e => setQuantity(e.target.value)} /></label><label className="text-sm">{pv('lineAmount')}<input className={input} inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} /></label></div>
     <div className="flex gap-2"><button className={secondary + ' flex-1'} type="button" onClick={close}>{pv('cancel')}</button><button className={primary + ' flex-1'} type="button" disabled={!name.trim() || units === null || units === 0 || minor === null}
-      onClick={() => run({ command: 'edit_item', id: view.id, contractVersion: 2, quantityScale: 3000, itemId: item.id, itemRevision: item.itemRevision, description: name.trim(), explanation: explanation.trim(), quantityUnits: units!, totalMinor: minor! }, close)}>{pv('saveLine')}</button></div>
+      onClick={() => run({ command: 'edit_item', id: view.id, contractVersion: 2, quantityScale: 3000, version: view.version, itemId: item.id, itemRevision: item.itemRevision, description: name.trim(), explanation: explanation.trim(), quantityUnits: units!, totalMinor: minor! }, close)}>{pv('saveLine')}</button></div>
   </fieldset>
 }
 
@@ -292,7 +299,7 @@ function AddItem({ view, pending, run }: { view: SplitViewV2; pending: boolean; 
   return <section className="space-y-3"><button className={secondary + ' w-full'} disabled={pending || view.items.length >= 100} onClick={() => setOpen(!open)}>{pv('add')}</button>{open && <fieldset className="space-y-3 rounded-2xl border border-border p-4" disabled={pending}>
     <p className="text-sm text-muted-foreground">{pv('addHelp')}</p><label className="block text-sm">{pv('name')}<input className={input} value={name} maxLength={200} onChange={e => setName(e.target.value)} /></label><label className="block text-sm">{pv('explanation')}<input className={input} value={explanation} maxLength={240} onChange={e => setExplanation(e.target.value)} /></label>
     <div className="grid grid-cols-2 gap-3"><label className="text-sm">{pv('quantity')}<input className={input} inputMode="decimal" value={quantity} onChange={e => setQuantity(e.target.value)} /></label><label className="text-sm">{pv('lineAmount')}<input className={input} inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} /></label></div>
-    <button className={primary + ' w-full'} disabled={!name.trim() || units === null || units === 0 || minor === null || minor < 0} onClick={() => run({ command: 'add_item', id: view.id, contractVersion: 2, quantityScale: 3000, description: name.trim(), explanation: explanation.trim(), quantityUnits: units!, totalMinor: minor! }, () => setOpen(false))}>{pv('add')}</button>
+    <button className={primary + ' w-full'} disabled={!name.trim() || units === null || units === 0 || minor === null || minor < 0} onClick={() => run({ command: 'add_item', id: view.id, contractVersion: 2, quantityScale: 3000, version: view.version, description: name.trim(), explanation: explanation.trim(), quantityUnits: units!, totalMinor: minor! }, () => setOpen(false))}>{pv('add')}</button>
   </fieldset>}</section>
 }
 

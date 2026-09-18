@@ -104,6 +104,14 @@ export async function checkFeatureAccess(
     if (process.env.BOOKINGS_ENABLED !== 'true') return false
     return checkPerUserAccess(email, 'bokanir')
   }
+  if (
+    featureKey === 'veitingastadir'
+    || featureKey === 'veitingastadir_starfsfolk'
+    || featureKey === 'veitingastadir_gestir'
+  ) {
+    if (process.env.RESTAURANTS_ENABLED !== 'true') return false
+    return checkPerUserAccess(email, featureKey)
+  }
   if (featureKey === 'heimilisverkin') {
     // Household Chores is a strict closed beta. Membership controls access to
     // an individual circle, but it never replaces either rollout gate.

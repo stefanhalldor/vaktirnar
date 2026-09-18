@@ -105,6 +105,46 @@ um að fá aðeins stutt samtalssvar, málið sé greinilega smátt eða skrá s
 - Ef ramminn er óljós, á viðkomandi að stoppa og spyrja Stebba áður en haldið er áfram.
 - Ef vafi er á hvort Stebbi hafi samþykkt framkvæmd, þá er svarið nei.
 
+### Sjálfvirkar staðbundnar undirgáttir eftir afmarkað framkvæmdarleyfi
+
+Þegar Stebbi hefur veitt skýrt og afmarkað framkvæmdarleyfi má Codex halda
+sjálfkrafa áfram innan þess scope í öllum fyrirfram skilgreindum,
+staðbundnum og afturkræfum undirgáttum. Það nær til baseline comparison,
+characterization, afmarkaðrar lagfæringar, endurprófunar, focused og full
+tests, typecheck, lint, build, diff/scope check, secret scan og independent
+review.
+
+- Codex biður ekki um nýtt samþykki milli undirgátta sem eru nákvæmlega GREEN.
+- Afmarkað RED sem má rekja með skýrum hætti til candidate-breytinga eða local
+  tooling er ekki ný samþykkisgátt. Codex lagar það innan samþykkts scope,
+  endurprófar og heldur áfram.
+- Ef full suite er RED á clean canonical baseline ber Codex saman exact failing
+  test IDs, assertion messages, uncaught errors og snapshot drift; fail counts
+  eða failure families ein og sér nægja ekki.
+- Ný failure identity, uncaught error, snapshot drift eða regression sem birtist
+  aðeins í candidate er candidate RED. Codex lagar hana, endurprófar og heldur
+  áfram innan scope; Codex stoppar aðeins ef hún reynist óleysanleg.
+- Ef öll candidate failures eru þegar á clean canonical baseline, eða candidate
+  hefur færri failures án nýrra failure IDs eða errors, skráir Codex command,
+  commit og exact samanburð sem `BASELINE_RED_NONBLOCKING`. Codex lagar ekki
+  óskyld baseline vandamál og heldur áfram með lint, build, diff/scope check,
+  secret scan, focused tests, typecheck og fresh independent review.
+- Codex stoppar á RED eða UNKNOWN sem ekki er hægt að afmarka eða leysa innan
+  scope, baseline eða remote drift, security/privacy finding, scope expansion
+  eða óleysanlegri tooling villu.
+- SQL-keyrsla, Production-aðgerð, push, merge og deploy eru alltaf sérstakar
+  stop-gáttir nema Stebbi hafi heimilað nákvæma aðgerð sérstaklega.
+- Þegar allar staðbundnar gáttir eru GREEN má Codex búa til einn hreinan local
+  commit ef sú commit-heimild var hluti af afmarkaða framkvæmdarleyfinu. Eftir
+  það stoppar Codex fyrir handvirka SQL-gátt, push eða deploy nema nákvæm aðgerð
+  hafi þegar verið sérstaklega heimiluð.
+- Full-suite RED sem er sannanlega `BASELINE_RED_NONBLOCKING` kemur ekki í veg
+  fyrir þennan local commit ef focused tests, typecheck, lint, build,
+  diff/scope, secret scan og independent review eru GREEN. Commit og handoff
+  merkja þá baseline debt nákvæmlega og mega ekki kalla full suite GREEN.
+- SQL source artifacts má skrifa og rýna innan samþykkts scope. Codex keyrir
+  aldrei SQL; Stebbi er eini SQL operatorinn.
+
 ---
 
 ## Deploy, commit, push og migrations

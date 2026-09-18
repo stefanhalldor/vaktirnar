@@ -6,7 +6,8 @@ vi.mock('@/lib/supabase/admin', () => ({ getAdmin: () => ({ rpc: mocks.rpc }) })
 import { editSplitV2 } from '@/lib/receipt-split/service-v2.server'
 const id = '00000000-0000-4000-8000-000000000001'
 const input = { id, requestId: id, command: 'claim', contractVersion: 2, quantityScale: 3000,
-  itemId: id, itemRevision: 1, previousUnits: 0, quantityUnits: 1000 }
+  itemId: id, itemRevision: 1, previousUnits: 0, quantityUnits: 1000,
+  inputMode: 'quantity', fractionNumerator: null, fractionDenominator: null } as const
 beforeEach(() => { vi.clearAllMocks(); mocks.user.mockResolvedValue({ id: 'trusted-session' }); mocks.rpc.mockResolvedValue({ data: { id }, error: null }) })
 describe('prepared v2 server boundary', () => {
   it('binds actor to authenticated session and sends explicit exact units and revisions', async () => {

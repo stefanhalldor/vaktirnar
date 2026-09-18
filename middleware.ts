@@ -71,6 +71,15 @@ const PUBLIC_BOOKING_API_PATTERNS = [
   new RegExp(`^/api/bookings/requests/${BOOKING_ID_SEGMENT}/read$`, 'i'),
 ]
 
+const RESTAURANT_SLUG_SEGMENT = '[a-z0-9]+(?:-[a-z0-9]+)*'
+const PUBLIC_RESTAURANT_PAGE_PATTERNS = [
+  new RegExp(`^/matseðill/${RESTAURANT_SLUG_SEGMENT}$`, 'i'),
+]
+const PUBLIC_RESTAURANT_API_PATTERNS = [
+  new RegExp(`^/api/restaurants/public/${RESTAURANT_SLUG_SEGMENT}$`, 'i'),
+  /^\/api\/restaurants\/public\/qr\/[0-9a-f]{64}$/i,
+]
+
 const AGENT_BRIDGE_PATHS = new Set([
   // Provider-neutral local agent bridge. These exact routes do not use a
   // browser session; each handler enforces one-time pairing or a scoped bearer
@@ -147,6 +156,17 @@ export async function middleware(request: NextRequest) {
 
   const isPublicBookingPage = PUBLIC_BOOKING_PAGE_PATTERNS.some(pattern => pattern.test(pathname))
   const isPublicBookingApi = PUBLIC_BOOKING_API_PATTERNS.some(pattern => pattern.test(pathname))
+  const isPublicRestaurantPage = PUBLIC_RESTAURANT_PAGE_PATTERNS.some(pattern => pattern.test(pathname))
+  const isPublicRestaurantApi = PUBLIC_RESTAURANT_API_PATTERNS.some(pattern => pattern.test(pathname))
+  const isRestaurantPrivatePath = pathname === '/auth-mvp/veitingastadir'
+    || pathname.startsWith('/auth-mvp/veitingastadir/')
+    || pathname === '/api/restaurants/owner'
+    || pathname.startsWith('/api/restaurants/owner/')
+    || pathname === '/api/restaurants/staff'
+    || pathname.startsWith('/api/restaurants/staff/')
+    || pathname === '/api/restaurants/guest'
+    || pathname.startsWith('/api/restaurants/guest/')
+  const isRestaurantPath = isPublicRestaurantPage || isPublicRestaurantApi || isRestaurantPrivatePath
   const isBookingCustomerPageNamespace = pathname === '/bokanir'
     || pathname.startsWith('/bokanir/')
   const isBookingProviderPage = pathname === '/auth-mvp/bokanir'
@@ -185,6 +205,17 @@ export async function middleware(request: NextRequest) {
         { status: 404, headers: { 'Cache-Control': 'private, no-store' } },
       )
     }
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
+  if (isRestaurantPath && process.env.RESTAURANTS_ENABLED !== 'true') {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'not_found' },
+        { status: 404, headers: { 'Cache-Control': 'private, no-store' } },
+      )
+    }
+    if (isPublicRestaurantPage) return NextResponse.next()
     return NextResponse.redirect(new URL('/', request.url))
   }
 
@@ -405,6 +436,8 @@ export async function middleware(request: NextRequest) {
     || PUBLIC_KVISS_PATH_PATTERNS.some(r => r.test(pathname))
     || isPublicBookingPage
     || isPublicBookingApi
+    || isPublicRestaurantPage
+    || isPublicRestaurantApi
   const isAuthCallback = pathname.startsWith('/auth/callback')
 
   // Landing page (/): public for guests, but authenticated users go to Teskeiðar.
@@ -442,6 +475,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/auth-mvp/vidburdir/') ||
     pathname.startsWith('/auth-mvp/kviss') ||
     pathname.startsWith('/auth-mvp/auglysandi')
+    || pathname.startsWith('/auth-mvp/veitingastadir')
   )) {
     return redirectToInnskraningWithNext()
   }

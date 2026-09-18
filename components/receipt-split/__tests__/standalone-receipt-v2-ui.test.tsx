@@ -223,6 +223,7 @@ describe('live standalone v2 board', () => {
       members: [{ token: self, name: 'Anna', isSelf: true }, { token: other, name: 'Bjarni', isSelf: false }],
       claims: [{ itemId: id, memberToken: self, quantityUnits: 1500, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null }, { itemId: id, memberToken: other, quantityUnits: 1500, inputMode: 'quantity' as const, fractionNumerator: null, fractionDenominator: null }],
     }} />)
+    expect(screen.getByRole('button', { name: 'add' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'conversion' }))
     fireEvent.change(screen.getByLabelText('targetCurrency'), { target: { value: 'pln' } })
     fireEvent.change(screen.getByLabelText('exchangeRate'), { target: { value: '4,5' } })

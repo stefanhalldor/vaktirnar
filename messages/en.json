@@ -274,6 +274,7 @@
       "saveExchange": "Save exchange rate",
       "savingExchange": "Saving exchange rate…",
       "unnamedParticipant": "Unnamed participant",
+      "addedBy": "Added by {name}",
       "convertedReceipt": "Bill total",
       "convertedLines": "Recorded items",
       "convertedOutstanding": "Outstanding",
@@ -336,6 +337,8 @@
       "receiptHelp": "This changes the receipt reference. Item amounts stay unchanged.",
       "add": "Add item",
       "addHelp": "A new item increases the recorded items total. The receipt total stays unchanged.",
+      "cancelLine": "Cancel my item",
+      "cancelLineConfirm": "Cancel this item? This only succeeds if nobody else has claimed it and restaurant processing has not started.",
       "demoControls": "Try collaborating",
       "viewAs": "View as",
       "owner": "Owner",
@@ -5022,6 +5025,18 @@
       "saveFailed": "The change could not be saved. Try again.",
       "accessChanged": "Access changed. Open the page again with valid access."
     }
+  },
+  "restaurants": {
+    "draft": "Order draft",
+    "add": "Add",
+    "remove": "Remove",
+    "quantity": "Quantity",
+    "empty": "Your draft is empty.",
+    "submit": "Add to Split",
+    "sending": "Sending…",
+    "login": "Sign in and select a valid Split for the table.",
+    "conflict": "The menu, table or Split changed. Reload and confirm again.",
+    "failed": "The selection could not be added to the Split."
   },
   "advertiser": {
     "title": "Advertiser",

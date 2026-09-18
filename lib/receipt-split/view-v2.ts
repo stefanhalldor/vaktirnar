@@ -14,6 +14,8 @@ export const splitViewV2Schema = splitViewSchema.omit({ totalMinor: true, items:
     explanation: z.string().max(240), explanationNeedsReview: z.boolean(),
     quantityUnits: integer.positive().max(MAX_SPLIT_QUANTITY_UNITS), itemRevision: integer.positive(),
     totalMinor: z.number().int().min(-Number.MAX_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER),
+    createdByMemberToken: uuid.nullable().optional(), createdByName: z.string().max(120).nullable().optional(),
+    sourceKind: z.enum(['legacy','manual','restaurant_menu']).optional(),
   }).strict()).max(100),
   claims: z.array(z.object({ itemId: uuid, memberToken: uuid, quantityUnits: integer.positive().max(MAX_SPLIT_QUANTITY_UNITS),
     inputMode: z.enum(['quantity', 'percent', 'fraction']), fractionNumerator: integer.positive().max(1_000_000).nullable(),
