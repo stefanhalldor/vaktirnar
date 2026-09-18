@@ -1,6 +1,6 @@
 # restaurant-digital-menu-to-split — SQL package v003
 
-Created: 2026-09-18 08:03  
+Created: 2026-09-18 08:03
 Timezone: Atlantic/Reykjavik
 
 ## Eigendagátt
