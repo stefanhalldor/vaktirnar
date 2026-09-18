@@ -446,7 +446,7 @@
       "recovery": "Image reading is not ready. Paste a JSON response here to continue with this split.",
       "quota": "Today's free image analysis has been used.",
       "capacity": "Teskeið image analysis is unavailable right now.",
-      "quotaRecovery": "You have used today's free image analysis. It will be available again tomorrow. You can still use Option 2.",
+      "quotaRecovery": "You have used today's free image analysis. It will be available to you again tomorrow.",
       "quotaChecking": "Checking image analysis availability…",
       "quotaUnavailable": "Image analysis availability could not be checked. Try again or use Option 2.",
       "quotaRetry": "Check again",

@@ -99,14 +99,19 @@ export function SplitImport({ id, recoveryReason }: { id?: string; recoveryReaso
     } catch { setError(t('copyFailed')) }
   }
   return <div className="space-y-4">
-    {!id && <p className="text-sm leading-6 text-muted-foreground">{t('methodHelp')}</p>}
-    {!id && <section className="space-y-3 rounded-2xl border border-border p-4">
+    {!id && availability !== 'quota' && <p className="text-sm leading-6 text-muted-foreground">{t('methodHelp')}</p>}
+    {!id && (availability === 'quota'
+      ? <section className="space-y-3 rounded-2xl border border-border p-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('methodOne')}</p>
+        <p role="status" className="text-sm leading-6 text-muted-foreground">{t('quotaRecovery')}</p>
+      </section>
+      : <section className="space-y-3 rounded-2xl border border-border p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('methodOne')}</p>
       <h2 className="text-lg font-semibold">{t('teskeidMethod')}</h2>
       <p className="text-sm leading-6 text-muted-foreground">{t('teskeidMethodHelp')}</p>
       {availability !== 'available' && !imagePending && <div className="flex items-start gap-2">
         <p id="split-image-availability" role="status" className="flex-1 text-sm leading-6 text-muted-foreground">
-          {t(availability === 'checking' ? 'quotaChecking' : availability === 'quota' ? 'quotaRecovery' : availability === 'capacity' ? 'capacityRecovery' : availability === 'login' ? 'login' : 'quotaUnavailable')}
+          {t(availability === 'checking' ? 'quotaChecking' : availability === 'capacity' ? 'capacityRecovery' : availability === 'login' ? 'login' : 'quotaUnavailable')}
         </p>
         <button type="button" onClick={() => void checkAvailability()} disabled={availability === 'checking' || pending}
           aria-label={t('quotaRetry')} title={t('quotaRetry')} className={secondary + ' flex h-11 w-11 shrink-0 items-center justify-center p-0'}>
@@ -127,7 +132,7 @@ export function SplitImport({ id, recoveryReason }: { id?: string; recoveryReaso
           className={(imageReady ? primary : secondary) + ' w-full'}>{pending ? t('pending') : t('image')}</button>
         <p className="text-sm leading-6 text-muted-foreground">{receiptText('providerNotice')}</p>
       </>}
-    </section>}
+    </section>)}
     <section className="space-y-3 rounded-2xl border border-border p-4">
       {!id && <>
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('methodTwo')}</p>

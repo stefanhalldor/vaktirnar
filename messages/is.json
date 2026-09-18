@@ -446,7 +446,7 @@
       "recovery": "Myndlestur er ekki tilbúinn. Þú getur límt JSON-svar hér til að halda áfram með sama splitt.",
       "quota": "Ókeypis myndgreining dagsins hefur verið notuð.",
       "capacity": "Myndgreining Teskeiðar er ekki tiltæk núna.",
-      "quotaRecovery": "Þú hefur notað ókeypis myndgreiningu dagsins. Hún verður aftur í boði á morgun. Þú getur áfram notað leið 2.",
+      "quotaRecovery": "Þú hefur notað ókeypis myndgreiningu dagsins. Hún verður aftur í boði fyrir þig á morgun.",
       "quotaChecking": "Athuga hvort myndgreining sé í boði…",
       "quotaUnavailable": "Ekki tókst að athuga hvort myndgreining sé í boði. Reyndu aftur eða notaðu leið 2.",
       "quotaRetry": "Athuga aftur",

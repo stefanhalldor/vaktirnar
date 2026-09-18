@@ -28,8 +28,19 @@ describe('receipt image availability', () => {
     mocks.availability.mockResolvedValue({ ok: false, error })
     render(<SplitImport />)
     expect(await screen.findByText(text)).toBeInTheDocument()
-    expect(screen.getByLabelText('image')).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'image' })).toBeDisabled()
+    if (error === 'quota') {
+      expect(screen.queryByLabelText('image')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'image' })).not.toBeInTheDocument()
+      expect(screen.getByText('methodOne')).toBeInTheDocument()
+      expect(screen.getByText('methodOne').closest('section')).toContainElement(screen.getByText('quotaRecovery'))
+      for (const key of ['methodHelp', 'teskeidMethod', 'teskeidMethodHelp', 'imageHelp', 'providerNotice']) {
+        expect(screen.queryByText(key)).not.toBeInTheDocument()
+      }
+      expect(screen.queryByRole('button', { name: 'quotaRetry' })).not.toBeInTheDocument()
+    } else {
+      expect(screen.getByLabelText('image')).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'image' })).toBeDisabled()
+    }
     fireEvent.change(screen.getByLabelText('json'), { target: { value: '{}' } })
     expect(screen.getByRole('button', { name: 'create' })).toBeEnabled()
     expect(mocks.prepare).not.toHaveBeenCalled()
@@ -50,7 +61,7 @@ describe('receipt image availability', () => {
     mocks.availability.mockResolvedValue({ ok: false, error: 'quota' })
     fireEvent(window, new Event('focus'))
     expect(await screen.findByText('quotaRecovery')).toBeInTheDocument()
-    expect(screen.getByLabelText('image')).toBeDisabled()
+    expect(screen.queryByLabelText('image')).not.toBeInTheDocument()
   })
   it('does not upload if quota became exhausted after the initial check', async () => {
     render(<SplitImport />)
