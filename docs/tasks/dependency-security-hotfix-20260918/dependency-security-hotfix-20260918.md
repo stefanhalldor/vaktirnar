@@ -17,7 +17,7 @@ Acceptance: `npm audit` án þekktra veikleika, focused map/i18n próf, typechec
 
 ## Current gate
 
-Local implementation og allar blocking local gates eru GREEN í isolated candidate frá `origin/main` commit `de68a16e603c09a3cfa82790bf72e61f45086652`. Full suite er `BASELINE_RED_NONBLOCKING`: candidate bætti engum failure ID eða uncaught error við canonical baseline.
+Hotfix commit `ceb74f87f8a0c3e8b7a058092c063827d26a9c23` er á `origin/main` og Vercel Production deployment `dpl_2jJwmFsa6XSaEYKcsqUB9T3w7BqR` er `Ready`. Public smoke á `/` og `/vedrid` skilar HTTP 200. Staðan er `READY_FOR_MANUAL_BROWSER_SMOKE`: handvirk MapLibre touch/zoom/marker/popup/mobile sannprófun bíður Stebba en hindrar ekki útgefna hotfixið. Full suite er `BASELINE_RED_NONBLOCKING`: candidate bætti engum failure ID eða uncaught error við canonical baseline.
 
 ## Ákvarðanir og mörk
 
@@ -51,9 +51,12 @@ Local implementation og allar blocking local gates eru GREEN í isolated candida
 - Full suite: `BASELINE_RED_NONBLOCKING`. Candidate 30 failed tests í 26 suites; baseline 37 failed tests í 33 suites; engin candidate-only failure ID eða error.
 - Diff/scope, `git diff --check` og secret scan: PASS.
 - Engin SQL, Supabase eða Production aðgerð var framkvæmd.
+- GitHub main push: PASS, fast-forward `de68a16e..ceb74f8`.
+- Vercel Production: `dpl_2jJwmFsa6XSaEYKcsqUB9T3w7BqR`, `Ready`, production aliases virk.
+- Production HTTP smoke: `/` 200 og `/vedrid` 200.
 
 Localhost-próf þurfa að keyra úr candidate/release-source; root er nú samstillt Production-grunni en dev-server Stebba þarf handvirka endurræsingu eftir source-skiptið.
 
 ## Latest handoff
 
-`handoffs/2026-09-18-1011-v001-codex-dependency-security-hotfix.md`
+`handoffs/2026-09-18-1134-v002-codex-production-release.md`
