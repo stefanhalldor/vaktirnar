@@ -31,6 +31,18 @@ export function receiptAiQuotaLimits() {
   }
 }
 
+export async function readReceiptAiAvailability(userId: string) {
+  const limits = receiptAiQuotaLimits()
+  const { data, error } = await getAdmin().rpc('receipt_split_ai_availability_v1', {
+    p_actor_id: userId,
+    p_user_daily_limit: limits.perUserDaily,
+    p_global_daily_limit: limits.globalDaily,
+    p_exempt_minute_limit: limits.exemptPerMinute,
+  })
+  if (error) throw new Error('receipt_ai_quota_unavailable')
+  return z.enum(['available', 'daily', 'capacity', 'burst']).parse(data)
+}
+
 export async function reserveReceiptAiQuota(userId: string, splitId: string) {
   const limits = receiptAiQuotaLimits()
   const { data, error } = await getAdmin().rpc('receipt_split_reserve_ai_v1', {

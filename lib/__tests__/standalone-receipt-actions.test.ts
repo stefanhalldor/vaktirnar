@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), user: vi.fn(), read: vi.fn(), storage: vi.fn(), provider: vi.fn(), legacy: vi.fn(), quota: vi.fn(), finish: vi.fn() }))
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), user: vi.fn(), read: vi.fn(), storage: vi.fn(), provider: vi.fn(), legacy: vi.fn(), quota: vi.fn(), finish: vi.fn(), availability: vi.fn() }))
 vi.mock('@/lib/receipt-split/legacy.server', () => ({ readLegacyReceiptLines: mocks.legacy }))
 vi.mock('server-only', () => ({}))
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
 vi.mock('@/lib/receipt-split/server', () => ({ splitUser: mocks.user, readSplit: mocks.read, SPLIT_PATH: '/auth-mvp/splitta-reikningnum', SPLIT_BUCKET: 'bill-split-receipts' }))
-vi.mock('@/lib/receipt-split/ai-quota.server', () => ({ reserveReceiptAiQuota: mocks.quota, finishReceiptAiQuota: mocks.finish }))
+vi.mock('@/lib/receipt-split/ai-quota.server', () => ({ reserveReceiptAiQuota: mocks.quota, finishReceiptAiQuota: mocks.finish, readReceiptAiAvailability: mocks.availability }))
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: () => ({ rpc: mocks.rpc, storage: { from: mocks.storage } }) }))
 vi.mock('@/lib/expenses/receipt-split.server', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/expenses/receipt-split.server')>()
   return { ...actual, extractExpenseReceipt: mocks.provider }
 })
-import { mutateSplit, mutateSplitV2, joinSplit, extractSplitImage, importLegacySplit, previewSplitInvite, setSplitItemDismissed, deleteSplitFromList, saveSplitExchange } from '@/lib/receipt-split/actions'
+import { getSplitImageAvailability, prepareSplitImage, mutateSplit, mutateSplitV2, joinSplit, extractSplitImage, importLegacySplit, previewSplitInvite, setSplitItemDismissed, deleteSplitFromList, saveSplitExchange } from '@/lib/receipt-split/actions'
 
 const actor = '00000000-0000-4000-8000-000000000001'
 const id = '00000000-0000-4000-8000-000000000002'
@@ -24,8 +24,44 @@ beforeEach(() => {
   mocks.read.mockResolvedValue({ id, isOwner: true, state: 'review', version: 4 })
   mocks.quota.mockResolvedValue({ allowed: true, reason: 'reserved', exempt: false, reservationId: requestId })
   mocks.finish.mockResolvedValue(undefined)
+  mocks.availability.mockResolvedValue('available')
 })
 describe('standalone action boundary', () => {
+  it('reads availability only for the signed-in actor without mutations', async () => {
+    expect(await getSplitImageAvailability()).toEqual({ ok: true, data: { available: true } })
+    expect(mocks.availability).toHaveBeenCalledWith(actor)
+    expect(mocks.rpc).not.toHaveBeenCalled()
+    expect(mocks.quota).not.toHaveBeenCalled()
+    mocks.user.mockResolvedValue(null)
+    expect(await getSplitImageAvailability()).toEqual({ ok: false, error: 'login' })
+    expect(mocks.availability).toHaveBeenCalledTimes(1)
+  })
+  it.each([['daily', 'quota'], ['capacity', 'capacity'], ['burst', 'capacity']])('blocks %s before draft creation or signed upload', async (status, error) => {
+    mocks.availability.mockResolvedValue(status)
+    expect(await prepareSplitImage({ id, requestId, mime: 'image/jpeg', size: 3 })).toEqual({ ok: false, error })
+    expect(mocks.rpc).not.toHaveBeenCalled()
+    expect(mocks.storage).not.toHaveBeenCalled()
+    expect(mocks.quota).not.toHaveBeenCalled()
+    expect(mocks.provider).not.toHaveBeenCalled()
+  })
+  it('fails closed before upload when the availability read fails', async () => {
+    mocks.availability.mockRejectedValue(new Error('private detail'))
+    expect(await prepareSplitImage({ id, requestId, mime: 'image/jpeg', size: 3 })).toEqual({ ok: false, error: 'failed' })
+    expect(mocks.rpc).not.toHaveBeenCalled()
+    expect(mocks.storage).not.toHaveBeenCalled()
+  })
+  it('only creates the draft and upload token after an available result', async () => {
+    const sign = vi.fn().mockResolvedValue({ data: { token: 'upload-token' }, error: null })
+    mocks.storage.mockReturnValue({ createSignedUploadUrl: sign })
+    mocks.rpc.mockResolvedValue({ data: { id, path: actor + '/' + id }, error: null })
+    expect(await prepareSplitImage({ id, requestId, mime: 'image/jpeg', size: 3 })).toEqual({
+      ok: true, data: { id, path: actor + '/' + id, token: 'upload-token' },
+    })
+    expect(mocks.availability).toHaveBeenCalledExactlyOnceWith(actor)
+    expect(mocks.availability.mock.invocationCallOrder[0]).toBeLessThan(mocks.rpc.mock.invocationCallOrder[0])
+    expect(mocks.quota).not.toHaveBeenCalled()
+    expect(mocks.provider).not.toHaveBeenCalled()
+  })
   it('binds an added shared item to the signed-in actor and the append-only RPC', async () => {
     const value = { command: 'add_item', id, requestId, description: 'Cake', quantity: 1000, amount: 450 }
     expect((await mutateSplit(value)).ok).toBe(true)

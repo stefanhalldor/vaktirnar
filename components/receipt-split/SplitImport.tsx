@@ -1,9 +1,10 @@
 'use client'
-import { useRef, useState, useTransition } from 'react'
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { createClient } from '@/lib/supabase/client'
-import { mutateSplit, prepareSplitImage, extractSplitImage } from '@/lib/receipt-split/actions'
+import { getSplitImageAvailability, mutateSplit, prepareSplitImage, extractSplitImage } from '@/lib/receipt-split/actions'
 import { createRequestId, expenseInputClass as input, expensePrimaryButtonClass as primary, expenseSecondaryButtonClass as secondary } from '@/components/expenses/ui'
 import { TeskeidLoader } from '@/components/teskeid/TeskeidLoader'
 
@@ -17,9 +18,35 @@ export function SplitImport({ id, recoveryReason }: { id?: string; recoveryReaso
   const [promptCopied, setPromptCopied] = useState(false)
   const [imagePending, setImagePending] = useState(false)
   const [pending, start] = useTransition()
+  const [availability, setAvailability] = useState<'checking' | 'available' | 'quota' | 'capacity' | 'unknown' | 'login'>('checking')
+  const availabilityRequest = useRef({ sequence: 0 })
+  const checkAvailability = useCallback(async () => {
+    const request = ++availabilityRequest.current.sequence
+    setAvailability('checking')
+    try {
+      const result = await getSplitImageAvailability()
+      if (request !== availabilityRequest.current.sequence) return
+      setAvailability(result.ok ? 'available' : result.error === 'quota' || result.error === 'capacity' || result.error === 'login' ? result.error : 'unknown')
+    } catch {
+      if (request === availabilityRequest.current.sequence) setAvailability('unknown')
+    }
+  }, [])
+  useEffect(() => {
+    if (id || imagePending) return
+    const requests = availabilityRequest.current
+    void checkAvailability()
+    const refresh = () => { if (document.visibilityState === 'visible') void checkAvailability() }
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      requests.sequence++
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [id, imagePending, checkAvailability])
   const attempt = useRef<{ text: string; id: string; requestId: string } | null>(null)
   const imageAttempt = useRef<{ file: File; id: string; requestId: string } | null>(null)
-  const imageReady = Boolean(file
+  const imageReady = Boolean(availability === 'available' && file
     && ['image/jpeg', 'image/png', 'image/webp'].includes(file.type)
     && file.size > 0
     && file.size <= 10485760)
@@ -41,6 +68,7 @@ export function SplitImport({ id, recoveryReason }: { id?: string; recoveryReaso
     })
   }
   function submitImage() {
+    if (availability !== 'available') return
     if (!file || !['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 10485760 || file.size === 0) { setError(t('imageHelp')); return }
     if (!imageAttempt.current || imageAttempt.current.file !== file) imageAttempt.current = { file, id: createRequestId(), requestId: createRequestId() }
     const current = imageAttempt.current
@@ -49,7 +77,12 @@ export function SplitImport({ id, recoveryReason }: { id?: string; recoveryReaso
     start(async () => {
       try {
         const prepared = await prepareSplitImage({ id: current.id, requestId: current.requestId, mime: file.type, size: file.size })
-        if (!prepared.ok) { setError(t(prepared.error)); setImagePending(false); return }
+        if (!prepared.ok) {
+          if (prepared.error !== 'quota' && prepared.error !== 'capacity' && prepared.error !== 'login') setError(t(prepared.error))
+          setAvailability(prepared.error === 'quota' || prepared.error === 'capacity' || prepared.error === 'login' ? prepared.error : 'unknown')
+          setImagePending(false)
+          return
+        }
         const uploaded = await createClient().storage.from('bill-split-receipts').uploadToSignedUrl(prepared.data.path, prepared.data.token, file, { contentType: file.type })
         if (uploaded.error) { setError(t('failed')); setImagePending(false); return }
         const extracted = await extractSplitImage(current.id)
@@ -71,13 +104,23 @@ export function SplitImport({ id, recoveryReason }: { id?: string; recoveryReaso
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('methodOne')}</p>
       <h2 className="text-lg font-semibold">{t('teskeidMethod')}</h2>
       <p className="text-sm leading-6 text-muted-foreground">{t('teskeidMethodHelp')}</p>
+      {availability !== 'available' && !imagePending && <div className="flex items-start gap-2">
+        <p id="split-image-availability" role="status" className="flex-1 text-sm leading-6 text-muted-foreground">
+          {t(availability === 'checking' ? 'quotaChecking' : availability === 'quota' ? 'quotaRecovery' : availability === 'capacity' ? 'capacityRecovery' : availability === 'login' ? 'login' : 'quotaUnavailable')}
+        </p>
+        <button type="button" onClick={() => void checkAvailability()} disabled={availability === 'checking' || pending}
+          aria-label={t('quotaRetry')} title={t('quotaRetry')} className={secondary + ' flex h-11 w-11 shrink-0 items-center justify-center p-0'}>
+          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>}
       {imagePending ? <TeskeidLoader
         ideaTitles={[t('analyzingIdea')]}
         loadingLabel={t('analyzingLabel')}
         fallbackIdeaTitle={t('analyzingIdea')}
         className="py-4"
       /> : <>
-        <input type="file" accept="image/jpeg,image/png,image/webp" aria-label={t('image')} disabled={pending}
+        <input type="file" accept="image/jpeg,image/png,image/webp" aria-label={t('image')} disabled={pending || availability !== 'available'}
+          aria-describedby={availability !== 'available' ? 'split-image-availability' : undefined}
           onChange={e => { setFile(e.target.files?.[0] ?? null); setError(null) }} className={input + ' py-2'} />
         <p className="text-sm text-muted-foreground">{t('imageHelp')}</p>
         <button type="button" onClick={submitImage} disabled={pending || !imageReady}

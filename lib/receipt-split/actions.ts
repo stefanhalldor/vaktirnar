@@ -9,7 +9,7 @@ import { mutationSchema, splitInvitePreviewSchema, type SplitResult } from './co
 import { parseSplitExtractionV2, parseSplitExtractionV2Text, splitEditV2Schema } from './contracts-v2'
 import { SPLIT_BUCKET, SPLIT_PATH, readSplit, splitUser } from './server'
 import { readLegacyReceiptLines } from './legacy.server'
-import { finishReceiptAiQuota, reserveReceiptAiQuota } from './ai-quota.server'
+import { finishReceiptAiQuota, readReceiptAiAvailability, reserveReceiptAiQuota } from './ai-quota.server'
 
 const commandResult = z.object({
   id: z.string().uuid(), path: z.string().nullable().optional(),
@@ -225,12 +225,25 @@ export async function importLegacySplit(input: unknown): Promise<SplitResult<{ i
     return { ok: true, data: { id: result.id } }
   } catch (error) { return failure(error) }
 }
+export async function getSplitImageAvailability(): Promise<SplitResult<{ available: true }>> {
+  try {
+    const user = await splitUser()
+    if (!user) return { ok: false, error: 'login' }
+    const status = await readReceiptAiAvailability(user.id)
+    if (status !== 'available') throw new Error('receipt_ai_quota_' + status)
+    return { ok: true, data: { available: true } }
+  } catch (error) { return failure(error) }
+}
+
 export async function prepareSplitImage(input: unknown): Promise<SplitResult<{ id: string; path: string; token: string }>> {
   try {
     const user = await splitUser()
     if (!user) return { ok: false, error: 'login' }
     const value = z.object({ id: z.string().uuid(), requestId: z.string().uuid(),
       mime: z.enum(['image/jpeg', 'image/png', 'image/webp']), size: z.number().int().min(1).max(10485760) }).strict().parse(input)
+    // Advisory read before any draft or upload; the atomic reservation remains authoritative.
+    const availability = await readReceiptAiAvailability(user.id)
+    if (availability !== 'available') throw new Error('receipt_ai_quota_' + availability)
     const result = await commandV2(user.id, 'prepare_image', value.requestId, value.id, { mime: value.mime, size: value.size })
     if (!result.path) throw new Error('split_invalid_result')
     const signed = await getAdmin().storage.from(SPLIT_BUCKET).createSignedUploadUrl(result.path)

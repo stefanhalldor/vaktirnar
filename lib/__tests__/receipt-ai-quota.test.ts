@@ -4,7 +4,7 @@ const rpc = vi.fn()
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/supabase/admin', () => ({ getAdmin: () => ({ rpc }) }))
 
-import { listReceiptAiExemptions, receiptAiQuotaLimits, reserveReceiptAiQuota, setReceiptAiExemption } from '@/lib/receipt-split/ai-quota.server'
+import { listReceiptAiExemptions, readReceiptAiAvailability, receiptAiQuotaLimits, reserveReceiptAiQuota, setReceiptAiExemption } from '@/lib/receipt-split/ai-quota.server'
 
 const userId = '00000000-0000-4000-8000-000000000001'
 const splitId = '00000000-0000-4000-8000-000000000002'
@@ -16,6 +16,19 @@ beforeEach(() => {
 })
 
 describe('receipt AI quota boundary', () => {
+  it.each(['available', 'daily', 'capacity', 'burst'])('reads %s without reserving quota', async status => {
+    rpc.mockResolvedValue({ data: status, error: null })
+    await expect(readReceiptAiAvailability(userId)).resolves.toBe(status)
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('receipt_split_ai_availability_v1', {
+      p_actor_id: userId, p_user_daily_limit: 1, p_global_daily_limit: 100, p_exempt_minute_limit: 5,
+    })
+  })
+  it('fails closed for an unavailable or malformed status', async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: 'private detail' } })
+    await expect(readReceiptAiAvailability(userId)).rejects.toThrow('receipt_ai_quota_unavailable')
+    rpc.mockResolvedValue({ data: { allowed: true }, error: null })
+    await expect(readReceiptAiAvailability(userId)).rejects.toThrow()
+  })
   it('uses bounded cost controls', () => {
     expect(receiptAiQuotaLimits()).toEqual({ perUserDaily: 1, globalDaily: 100, exemptPerMinute: 5 })
     process.env.EXPENSE_RECEIPT_AI_GLOBAL_DAILY_LIMIT = '999999'

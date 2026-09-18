@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ mutate: vi.fn(), prepare: vi.fn(), extract: vi.fn(), upload: vi.fn(), writeText: vi.fn(), push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), join: vi.fn(), preview: vi.fn() }))
+const mocks = vi.hoisted(() => ({ mutate: vi.fn(), prepare: vi.fn(), extract: vi.fn(), upload: vi.fn(), writeText: vi.fn(), push: vi.fn(), refresh: vi.fn(), replace: vi.fn(), join: vi.fn(), preview: vi.fn(), availability: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push, replace: mocks.replace, refresh: mocks.refresh }) }))
 vi.mock('next-intl', () => ({ useLocale: () => 'en', useTranslations: () => (key: string, values?: Record<string,string | number>) => key + (values?.quantity !== undefined ? ' ' + values.quantity : values?.amount !== undefined ? ' ' + values.amount : '') }))
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ storage: { from: () => ({ uploadToSignedUrl: mocks.upload }) } }) }))
 vi.mock('@/lib/receipt-split/actions', () => ({
   mutateSplit: mocks.mutate, prepareSplitImage: mocks.prepare, extractSplitImage: mocks.extract,
+  getSplitImageAvailability: mocks.availability,
   joinSplit: mocks.join, previewSplitInvite: mocks.preview, openSplitImage: vi.fn(),
 }))
 import { SplitImport } from '../SplitImport'
@@ -30,6 +31,7 @@ beforeEach(() => {
   mocks.extract.mockResolvedValue({ ok: true, data: { id } })
   mocks.writeText.mockResolvedValue(undefined)
   mocks.preview.mockResolvedValue({ ok: true, data: { title: 'Dinner at Milan' } })
+  mocks.availability.mockResolvedValue({ ok: true, data: { available: true } })
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: mocks.writeText } })
   sessionStorage.clear()
   history.replaceState({}, '', '/')
@@ -42,7 +44,7 @@ describe('standalone receipt UI', () => {
     expect(screen.getByText('methodOne')).toBeInTheDocument()
     expect(screen.getByText('methodTwo')).toBeInTheDocument()
   })
-  it('promotes each import action only when its own input is ready', () => {
+  it('promotes each import action only when its own input is ready', async () => {
     render(<SplitImport />)
     const imageAction = screen.getByRole('button', { name: 'image' })
     const jsonAction = screen.getByRole('button', { name: 'create' })
@@ -50,6 +52,7 @@ describe('standalone receipt UI', () => {
     expect(imageAction).toHaveClass('bg-background')
     expect(jsonAction).toBeDisabled()
     expect(jsonAction).toHaveClass('bg-background')
+    await waitFor(() => expect(screen.getByLabelText('image')).toBeEnabled())
 
     fireEvent.change(screen.getByLabelText('image'), {
       target: { files: [new File(['receipt'], 'receipt.jpg', { type: 'image/jpeg' })] },
@@ -135,6 +138,7 @@ describe('standalone receipt UI', () => {
     let finishExtraction: ((value: { ok: true; data: { id: string } }) => void) | undefined
     mocks.extract.mockImplementation(() => new Promise(resolve => { finishExtraction = resolve }))
     render(<SplitImport />)
+    await waitFor(() => expect(screen.getByLabelText('image')).toBeEnabled())
     const file = new File(['receipt'], 'receipt.jpg', { type: 'image/jpeg' })
     fireEvent.change(screen.getByLabelText('image'), { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: 'image' }))
@@ -147,6 +151,7 @@ describe('standalone receipt UI', () => {
   it('routes an exhausted daily allowance to the saved split and recommends option two', async () => {
     mocks.extract.mockResolvedValue({ ok: false, error: 'quota' })
     const first = render(<SplitImport />)
+    await waitFor(() => expect(screen.getByLabelText('image')).toBeEnabled())
     const file = new File(['receipt'], 'receipt.jpg', { type: 'image/jpeg' })
     fireEvent.change(screen.getByLabelText('image'), { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: 'image' }))
